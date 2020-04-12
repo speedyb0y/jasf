@@ -69,25 +69,25 @@ typedef unsigned long long  uintll;
 
 #define REPEATEDS_END 0
 //                       0b????0000U //     repeated ID ??
-// usar um ^STOKEN_NULL ao ler o código, e ao escrever o código, assim NULL pode ser 0????
-#define STOKEN_BINARY    0b00000000U //  0
-#define STOKEN_STRING    0b00000001U //  1 UTF-8
-#define STOKEN_INT64     0b00000010U //  2
-#define STOKEN_FLOAT64   0b00000011U //  3 IEEE 754-2008
-#define STOKEN_NULL      0b00000100U //  4
-#define STOKEN_LIST      0b00000101U //  5
-#define STOKEN_DICT      0b00000110U //  6
-#define STOKEN_FALSE     0b00000111U //  7
-#define STOKEN_TRUE      0b00001000U //  8
-#define STOKEN_INVALID   0b00001001U //  9             9.223.372.036.854.775.808
-#define STOKEN_EOF       0b00001010U // 10             -18.446.744.073.709.551.616 18 quintilhões suportados
-#define STOKEN_LD_END    0b00001011U // 11
-#define STOKEN_LD_END1   0b00001100U // 12 followed by 1 byte count of ends
-#define STOKEN_REPEATED1 0b00001101U // 13 repeated ID 1  bytes
-#define STOKEN_REPEATED2 0b00001110U // 14 repeated ID 2  bytes
-#define STOKEN_REPEATED3 0b00001111U // 15 repeated ID 3  bytes
+// usar um ^SCODE_NULL ao ler o código, e ao escrever o código, assim NULL pode ser 0????
+#define SCODE_BINARY    0b00000000U //  0
+#define SCODE_STRING    0b00000001U //  1 UTF-8
+#define SCODE_INT64     0b00000010U //  2
+#define SCODE_FLOAT64   0b00000011U //  3 IEEE 754-2008
+#define SCODE_NULL      0b00000100U //  4
+#define SCODE_INVALID   0b00000101U //  5
+#define SCODE_FALSE     0b00000110U //  6
+#define SCODE_TRUE      0b00000111U //  7
+#define SCODE_DICT      0b00001000U //  8
+#define SCODE_LIST      0b00001001U //  9             9.223.372.036.854.775.808
+#define SCODE_EOF       0b00001010U // 10             -18.446.744.073.709.551.616 18 quintilhões suportados
+#define SCODE_LD_END    0b00001011U // 11
+#define SCODE_LD_END1   0b00001100U // 12 followed by 1 byte count of ends
+#define SCODE_REPEATED1 0b00001101U // 13 repeated ID 1  bytes
+#define SCODE_REPEATED2 0b00001110U // 14 repeated ID 2  bytes
+#define SCODE_REPEATED3 0b00001111U // 15 repeated ID 3  bytes
    //                            ||
-   //                            TIPOS QUE PODEM ENCODAR VALORES (code <= STOKEN_FLOAT64)
+   //                            TIPOS QUE PODEM ENCODAR VALORES (code <= SCODE_FLOAT64)
    // São arrastados << 6 ---5
    //                0b11000000U
    //                  ||||||||
@@ -95,20 +95,20 @@ typedef unsigned long long  uintll;
    //                    ||||||
    //                    LEN|||
    //                       RBITS
-#define STOKEN_UNEXPECTED_END 0x100U // NÃO APARECE NA STREAM, É UM EVENTO D EERRO
+#define SCODE_UNEXPECTED_END 0x100U // NÃO APARECE NA STREAM, É UM EVENTO D EERRO
 
 // Se retornar NULL - encontrou o EOF, explícito
 // Se retornar end - chegou ao fim do buffer, consumiu tudo o que tem nele, mas ainda não terminou a stream
 // Se retornar qualquer outro valor - ainda não dá para ler este item por completo, precisa carregar mais do buffer (após o end)
 typedef intll DeserializeRet;
 
-typedef uint SCode;
-typedef u64 SWord;
+typedef uint SCODE;
+typedef u64 SWORD;
 
 typedef struct DeserializeRepeated DeserializeRepeated;
 
 struct DeserializeRepeated { //  TODO: FIXME: ---> no ctx->repeateds, ja salvar o code, value
-    SCode code;
+    SCODE code;
     u64 value;
     void* data; // onde começam os dados
 };
@@ -119,7 +119,7 @@ struct DeserializeContext {
     u8* pos;
     u8* end;
     u8* start;
-    DeserializeRet (*readen)(DeserializeContext*, SCode, u64); // called om each value readen
+    DeserializeRet (*readen)(DeserializeContext*, SCODE, SWORD, void* data); // called om each value readen
     DeserializeRepeated* repeated;
     DeserializeRepeated* repeatedsEnd;
     DeserializeRepeated repeateds[]; // st->start + st->repeateds[ID] aponta para o offset do primeiro
@@ -150,62 +150,76 @@ static DeserializeRet deserialize_list(DeserializeContext* restrict const ctx) {
         DeserializeRepeated* repeated;
         uint repeatedID;
         uint code;
-        SWord value;
+        SWORD value;
 
         if (ctx->pos == ctx->end)     // TODO: FIXME: nao tem mais nada, mas o cara diz DESERIALIZE_CONTINUE -> 0 -1 - -1 -< ou seja, seg uem frente com o erro
-            return ctx->readen(ctx, STOKEN_UNEXPECTED_END, 0) - 1;
+            return ctx->readen(ctx, SCODE_UNEXPECTED_END, 0, NULL) - 1;
 
         switch ((code = *(ctx->pos++))) {
             // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
 
-            case STOKEN_NULL ... STOKEN_EOF:
+            case SCODE_LIST:
 
-                if ((ret = ctx->readen(ctx, code, 0)))
+                if ((ret = ctx->readen(ctx, code, 0, NULL)))
                     return ret - 1;
 
-                switch (code) {
-                    case STOKEN_LIST:
-                        if ((ret = deserialize_list(ctx)))
-                            return ret - 1; // tem mais um para sair
-                        break;
-                    case STOKEN_DICT:
-                        if ((ret = deserialize_dict(ctx)))
-                            return ret - 1;
-                        break;
-                    case STOKEN_EOF:
-                        return DESERIALIZE_END;
-                }
+                if ((ret = deserialize_list(ctx)))
+                    return ret - 1; // tem mais um para sair
 
                 break;
 
-            case STOKEN_LD_END:
+            case SCODE_DICT:
 
-                if ((ret = ctx->readen(ctx, code, 0)))
+                if ((ret = ctx->readen(ctx, code, 0, NULL)))
+                    return ret - 1;
+
+                if ((ret = deserialize_dict(ctx)))
+                    return ret - 1;
+
+                break;
+
+            case SCODE_EOF:
+
+                if ((ret = ctx->readen(ctx, code, 0, NULL)))
+                    return ret - 1;
+
+                return DESERIALIZE_END;
+
+            case SCODE_NULL ... SCODE_TRUE:
+
+                if ((ret = ctx->readen(ctx, code, 0, NULL)))
+                    return ret - 1;
+
+                break;
+
+            case SCODE_LD_END:
+
+                if ((ret = ctx->readen(ctx, code, 0, NULL)))
                     return ret - 1;
 
                 return 0;
 
-            case STOKEN_LD_END1:
+            case SCODE_LD_END1:
 
                 code = (ctx->pos++)[0] + 1; // termina este level e mais esses N + 1 aí
 
-                if ((ret = ctx->readen(ctx, STOKEN_LD_END, code)))
+                if ((ret = ctx->readen(ctx, SCODE_LD_END, code, NULL)))
                     return ret - 1;
 
                 return code - 1;
 
-            case STOKEN_REPEATED1:
+            case SCODE_REPEATED1:
 
-                if      (code == STOKEN_REPEATED1) repeatedID =                                             ctx->pos[0];
-                else if (code == STOKEN_REPEATED2) repeatedID =                       (ctx->pos[1] <<  8) | ctx->pos[0];
-                else if (code == STOKEN_REPEATED3) repeatedID = (ctx->pos[2] << 16) | (ctx->pos[1] << 16) | ctx->pos[0];
+                if      (code == SCODE_REPEATED1) repeatedID =                                             ctx->pos[0];
+                else if (code == SCODE_REPEATED2) repeatedID =                       (ctx->pos[1] <<  8) | ctx->pos[0];
+                else if (code == SCODE_REPEATED3) repeatedID = (ctx->pos[2] << 16) | (ctx->pos[1] << 16) | ctx->pos[0];
 
                 // TODO:  FIXME: esse ID existe mesmo? :O
                 repeated = ctx->repeateds + repeatedID;
 
-                ctx->pos += code - STOKEN_REPEATED1 + 1;
+                ctx->pos += code - SCODE_REPEATED1 + 1;
 
-                if ((ret = ctx->readen(ctx, repeated->code, repeated->value))) //, TODO: FIXME: repeated->data
+                if ((ret = ctx->readen(ctx, repeated->code, repeated->value, repeated->data))) //, TODO: FIXME: repeated->data
                     return ret - 1;
 
                 break;
@@ -235,13 +249,16 @@ static DeserializeRet deserialize_list(DeserializeContext* restrict const ctx) {
 
                 // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
 
-                if ((ret = ctx->readen(ctx, code, value)))
+                if ((ret = ctx->readen(ctx, code, value, ctx->pos)))
                     return ret - 1;
         }
     }
 }
 
-// code é um STOKEN_BINARY / STOKEN_STRING / STOKEN_INT64 / STOKEN_INT64 / STOKEN_FLOAT_POS / STOKEN_FLOAT_NEG
+
+// TODO: FIXME: serialize( buff, buffEnd, code, word, data )
+
+// code é um SCODE_BINARY / SCODE_STRING / SCODE_INT64 / SCODE_INT64 / SCODE_FLOAT_POS / SCODE_FLOAT_NEG
 static uint serialize_code_value (u8* const restrict buff, uint code, u64 value) {
 
     uint len;
@@ -291,7 +308,7 @@ static uint serialize_code_value (u8* const restrict buff, uint code, u64 value)
 }
 
 // TODO: FIXME: se repeatedsMax for 0, vai analisar primeiro e computar quantos precisa
-static DeserializeRet deserialize(u8* const start, u8* const end, DeserializeRet (*readen)(DeserializeContext*, SCode, u64), uint repeatedsMax) {
+static DeserializeRet deserialize(u8* const start, u8* const end, DeserializeRet (*readen)(DeserializeContext*, SCODE, SWORD, void* data), uint repeatedsMax) {
 
     DeserializeContext* ctx;
 
@@ -318,7 +335,7 @@ static DeserializeRet deserialize(u8* const start, u8* const end, DeserializeRet
             break;
         }
 
-        SCode code = *(ctx->pos++);
+        SCODE code = *(ctx->pos++);
 
         if (code == REPEATEDS_END) {
             ret = deserialize_list(ctx);
@@ -368,9 +385,10 @@ static DeserializeRet deserialize(u8* const start, u8* const end, DeserializeRet
     return ret;
 }
 
-static DeserializeRet show_value (DeserializeContext* restrict const st, SCode code, SWord value) {
+static DeserializeRet show (DeserializeContext* restrict const st, SCODE code, SWORD word, void* data) {
 
     (void)st;
+    (void)data;
 
     union {
         u64 u64_;
@@ -378,32 +396,32 @@ static DeserializeRet show_value (DeserializeContext* restrict const st, SCode c
 
     } v;
 
-    v.u64_ = value;
+    v.u64_ = word;
 
     switch (code) {
-        case STOKEN_NULL            : //typeName = "NULL";
+        case SCODE_NULL            : //typeName = "NULL";
             break;
-        case STOKEN_INVALID         : //typeName = "INVALID";
+        case SCODE_INVALID         : //typeName = "INVALID";
             break;
-        case STOKEN_FALSE           : //typeName = "BOOL FALSE";
+        case SCODE_FALSE           : //typeName = "BOOL FALSE";
             break;
-        case STOKEN_TRUE            : //typeName = "BOOL TRUE";
+        case SCODE_TRUE            : //typeName = "BOOL TRUE";
             break;
-        case STOKEN_INT64           : //typeName = "INT64";
-            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", code, (uintll)value, (uintll)value);
+        case SCODE_INT64           : //typeName = "INT64";
+            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", code, (uintll)word, (uintll)word);
             break;
-        case STOKEN_FLOAT64         : //typeName = "FLOAT64" ;
+        case SCODE_FLOAT64         : //typeName = "FLOAT64" ;
             printf("TYPE 0x%02X FLOAT64 0x%016llX %f\n", code, (uintll)v.double_, v.double_);
             break;
-        case STOKEN_EOF             : //typeName = "END OF STREAM" ;
+        case SCODE_EOF             : //typeName = "END OF STREAM" ;
             break;
-        case STOKEN_UNEXPECTED_END  : //typeName = "UNEXPECTED END OF STREAM";
+        case SCODE_UNEXPECTED_END  : //typeName = "UNEXPECTED END OF STREAM";
             break;
         default:
             break;
     }
 
-    // TODO: FIXME: ao chamar a função, pos tem q ue estar após o CODE+value -> tem que estar no começo da string/binary
+    // TODO: FIXME: ao chamar a função, pos tem q ue estar após o CODE+word -> tem que estar no começo da string/binary
 
 
     return DESERIALIZE_CONTINUE;
@@ -420,38 +438,38 @@ int main (void) {
 
     *buff_++ = 0; // the end of repeated values
 
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000000000LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000000000LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000000001LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000000001LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000000002LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000000002LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000000003LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000000003LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000000004LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000000004LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000000005LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000000005LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000000LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000000LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000001LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000001LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000002LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000002LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000003LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000003LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000004LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000004LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000005LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000005LL);
 
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x00000000000000AALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x00000000000000AALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x000000000000BBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x000000000000BBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0000000000CCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0000000000CCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x00000000DDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x00000000DDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x000000EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x000000EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x000077EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x000077EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x008877EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x008877EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x998877EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x998877EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x00000000000000AALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x00000000000000AALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x000000000000BBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x000000000000BBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000CCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000CCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x00000000DDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x00000000DDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x000000EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x000000EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x000077EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x000077EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x008877EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x008877EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x998877EEDDCCBBAALL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x998877EEDDCCBBAALL);
 
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)  1000);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) -1000);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)  1000);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) -1000);
 
     union {
         double double_;
@@ -462,29 +480,29 @@ int main (void) {
 
     printf("!!!!!!!FLOAT64 0x%016llX %f\n", (uintll)x.w, (float)x.double_);
 
-    buff_ += serialize_code_value(buff_, STOKEN_FLOAT64, (SWord)x.w);
+    buff_ += serialize_code_value(buff_, SCODE_FLOAT64, (SWORD)x.w);
 
     printf("egeg|%llu|\n", (uintll)sizeof (x));
 
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0102030405060708LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0102030405060708LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord) 0x0807060504030201LL);
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)-0x0807060504030201LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0102030405060708LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0102030405060708LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0807060504030201LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0807060504030201LL);
 
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000003FLL);  // 0b111111
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000007FLL);  // 0b1111111
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x000000000000000FFLL);  // 0b11111111
-    buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x00000000000001FFULL);  // 0b111111111 0x1ff
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, STOKEN_INT64, (SWord)0x0000000000000000LL);
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000003FLL);  // 0b111111
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000007FLL);  // 0b1111111
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x000000000000000FFLL);  // 0b11111111
+    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x00000000000001FFULL);  // 0b111111111 0x1ff
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
 
-    buff_[0] = STOKEN_EOF;
+    buff_[0] = SCODE_EOF;
     buff_[1] = 0;
     buff_[2] = 0;
     buff_[3] = 0;
@@ -502,7 +520,7 @@ int main (void) {
     printf("\n");
 
     // le t udo até encontrar o primeiro NULLO
-    deserialize(buff, buff + sizeof(buff), show_value, 65535); // AUTO DETECTAR QUANTOS REPEATS VAI PRECISAR? :O
+    deserialize(buff, buff + sizeof(buff), show, 65535); // AUTO DETECTAR QUANTOS REPEATS VAI PRECISAR? :O
 
     return 0;
 }
