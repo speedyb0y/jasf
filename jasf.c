@@ -176,8 +176,7 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
     loop {
 
         int ret;
-        PyObject* list2;
-        PyObject* dict2;
+        PyObject* obj;
         SCODE code;
         SWORD word;
         uint repeatedID;
@@ -196,21 +195,21 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
             case SCODE_LIST:
 
                 // TODO: FIXME: suportar também tuple =]
-                list2 = py_list_new();
+                obj = py_list_new();
 
-                py_list_append(list, (PyObject*)list2);
+                py_list_append(list, obj);
 
-                DECODE_ENTER_LEVEL(decode_list(decoding, list2));
+                DECODE_ENTER_LEVEL(decode_list(decoding, obj));
 
             case SCODE_DICT:
 
                 // cria o dicionário
                 // adiciona o dicionáiro à lista
-                dict2 = py_dict_new();
+                obj = py_dict_new();
 
-                py_list_append(list, (PyObject*)dict2);
+                py_list_append(list, obj);
 
-                DECODE_ENTER_LEVEL(decode_dict(decoding, dict2));
+                DECODE_ENTER_LEVEL(decode_dict(decoding, obj));
 
             case SCODE_NULL:
 
