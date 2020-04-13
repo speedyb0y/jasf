@@ -56,6 +56,8 @@
 
 #define loop while(1)
 
+#define elif else if
+
 typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -99,11 +101,6 @@ typedef uint SCODE;
 typedef u64 SWORD;
 
 typedef struct PyObject PyObject;
-typedef struct PyList PyList;
-typedef struct PyDict PyDict;
-
-struct PyList;
-struct PyDict;
 
 struct PyObject { //  TODO: FIXME: ---> no decoding->repeateds, ja salvar o code, value
     SCODE code;
@@ -111,10 +108,11 @@ struct PyObject { //  TODO: FIXME: ---> no decoding->repeateds, ja salvar o code
     void* data;
 };
 
-static inline PyList* py_list_new(void) { return NULL; }
-static void py_list_append(PyList* restrict list, PyObject* obj) { (void)list; (void)obj; }
-static inline PyDict* py_dict_new(void) { return NULL; }
-static void py_dict_set(PyObject* key, PyObject* value) { (void)key; (void)value; }
+static inline PyObject* py_list_new(void) { return NULL; }
+static inline PyObject* py_dict_new(void) { return NULL; }
+static inline void py_free(PyObject* obj) { (void)obj; }
+static inline void py_list_append(PyObject* restrict list, PyObject* obj) { (void)list; (void)obj; }
+static inline void py_dict_set(PyObject* const restrict dict, PyObject* const restrict key, PyObject* const restrict value) { (void)dict; (void)key; (void)value; }
 
 #define DECODE_CONTINUE          0
 #define DECODE_EOF              -1// EOF quebra todos os níveis independente de quantos forem
@@ -127,6 +125,7 @@ static void py_dict_set(PyObject* key, PyObject* value) { (void)key; (void)value
 #define DECODE_JUNK_AT_END      -8
 #define DECODE_NO_VALUE         -9
 #define DECODE_UNEXPECTED_LD_END -10  // lista/dicionário sem fim
+#define DECODE_UNEXPECTED_TOKEN -11
 
     // TODO: FIXME: pré gerar esses exceptions, e depois exceptions[-(ret+1)]
 
@@ -157,13 +156,13 @@ struct Decoding {
 #define repeateds (decoding->repeateds)
 #define repeatedsEnd (decoding->repeatedsUnknown)
 
-static int decode_dict (Decoding* const restrict decoding, PyDict* const restrict dict) {
+static int decode_dict (Decoding* const restrict decoding, PyObject* const restrict dict) {
     (void)decoding;
     (void)dict;
     return 0;
 }
 
-static int decode_list (Decoding* const restrict decoding, PyList* const restrict list) {
+static int decode_list (Decoding* const restrict decoding, PyObject* const restrict list) {
 
 
     // TODO: FIXME: cada objeto criado, seja repeated, o unão, coloca numa lista de objetos_criados
@@ -173,8 +172,8 @@ static int decode_list (Decoding* const restrict decoding, PyList* const restric
     loop {
 
         int ret;
-        PyList* list2;
-        PyDict* dict2;
+        PyObject* list2;
+        PyObject* dict2;
         SCODE code;
         SWORD word;
         uint repeatedID;
@@ -398,7 +397,7 @@ static PyObject* decode () {
         SCODE code;
         SWORD word;
 
-        switch ((code = *(pos++)) {
+        switch ((code = *pos++)) {
 
             /* NULL | INVALID | FALSE | TRUE | BINARY | STRING | INT64 | FLOAT64 a gente ainda não sabe se é o valor final ou só mais um na lista de repeateds; então vai pegando e colocando na lista, e lembrando sempre do último */
             case SCODE_BINARY:
@@ -455,7 +454,7 @@ static PyObject* decode () {
 
             case SCODE_LIST: /* Listas e dicionários não podem ser repeateds; Se agora um deles aparecer, eles se tornam o valor final. Não poderá haver nada depois deles. */
 
-                value_set((py_list_new());
+                value_set(py_list_new());
 
                 decoding->start = start;
                 decoding->pos = pos;
@@ -493,14 +492,14 @@ static PyObject* decode () {
     }
 
 RET:
-    if value;
+    if (value)
         py_free(value);
 
-    if this:
+    if (this)
         py_free(this);
 
     while (repeateds != decoding->repeateds)
-        py_free(repeateds+=);
+        py_free(*--repeateds);
 
     free(decoding);
 
@@ -612,38 +611,38 @@ int main (void) {
 
     *buff_++ = 0; // the end of repeated values
 
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000000LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000000LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000001LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000001LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000002LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000002LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000003LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000003LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000004LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000004LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000005LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000005LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000000LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000000LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000001LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000001LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000002LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000002LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000003LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000003LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000004LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000004LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000005LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000005LL);
 
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x00000000000000AALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x00000000000000AALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x000000000000BBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x000000000000BBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000CCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000CCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x00000000DDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x00000000DDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x000000EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x000000EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x000077EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x000077EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x008877EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x008877EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x998877EEDDCCBBAALL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x998877EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x00000000000000AALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x00000000000000AALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x000000000000BBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x000000000000BBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000CCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000CCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x00000000DDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x00000000DDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x000000EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x000000EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x000077EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x000077EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x008877EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x008877EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x998877EEDDCCBBAALL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x998877EEDDCCBBAALL);
 
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)  1000);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) -1000);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)  1000);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) -1000);
 
     union {
         double double_;
@@ -654,27 +653,27 @@ int main (void) {
 
     printf("!!!!!!!FLOAT64 0x%016llX %f\n", (uintll)x.w, (float)x.double_);
 
-    buff_ += serialize_code_value(buff_, SCODE_FLOAT64, (SWORD)x.w);
+    buff_ += encode_code_value(buff_, SCODE_FLOAT64, (SWORD)x.w);
 
     printf("egeg|%llu|\n", (uintll)sizeof (x));
 
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0102030405060708LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0102030405060708LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD) 0x0807060504030201LL);
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)-0x0807060504030201LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0102030405060708LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0102030405060708LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0807060504030201LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0807060504030201LL);
 
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000003FLL);  // 0b111111
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000007FLL);  // 0b1111111
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x000000000000000FFLL);  // 0b11111111
-    buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x00000000000001FFULL);  // 0b111111111 0x1ff
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
-    //buff_ += serialize_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000003FLL);  // 0b111111
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000007FLL);  // 0b1111111
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x000000000000000FFLL);  // 0b11111111
+    buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x00000000000001FFULL);  // 0b111111111 0x1ff
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
+    //buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)0x0000000000000000LL);
 
     buff_[0] = SCODE_EOF;
     buff_[1] = 0;
@@ -694,7 +693,7 @@ int main (void) {
     printf("\n");
 
     // le t udo até encontrar o primeiro NULLO
-    deserialize(buff, buff + sizeof(buff), show, 65535); // AUTO DETECTAR QUANTOS REPEATS VAI PRECISAR? :O
+    decode(buff, buff + sizeof(buff), 65535); // AUTO DETECTAR QUANTOS REPEATS VAI PRECISAR? :O
 
     return 0;
 }
