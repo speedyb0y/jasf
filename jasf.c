@@ -100,16 +100,48 @@ typedef unsigned long long  uintll;
 typedef uint SCODE;
 typedef u64 SWORD;
 
+static inline void show (SCODE code, SWORD word, void* const restrict buff) {
+
+
+    (void)buff;
+
+    union { u64 u64_; double double_; } v;
+
+    v.u64_ = word;
+
+    switch (code) {
+        case SCODE_NULL            : //typeName = "NULL";
+            break;
+        case SCODE_INVALID         : //typeName = "INVALID";
+            break;
+        case SCODE_FALSE           : //typeName = "BOOL FALSE";
+            break;
+        case SCODE_TRUE            : //typeName = "BOOL TRUE";
+            break;
+        case SCODE_INT64           : //typeName = "INT64";
+            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", code, (uintll)word, (uintll)word);
+            break;
+        case SCODE_FLOAT64         : //typeName = "FLOAT64" ;
+            printf("TYPE 0x%02X FLOAT64 0x%016llX %f\n", code, (uintll)v.double_, v.double_);
+            break;
+        case SCODE_EOF             : //typeName = "END OF STREAM" ;
+            printf("EOF\n");
+            break;
+        default:
+            printf("??????????? ? %02X \n", code);
+            break;
+    }
+    // TODO: FIXME: ao chamar a função, pos tem q ue estar após o CODE+word -> tem que estar no começo da string/binary
+}
+
 typedef struct PyObject PyObject;
 
 struct PyObject { //  TODO: FIXME: ---> no decoding->repeateds, ja salvar o code, value
-    SCODE code;
-    SWORD word;
-    void* data;
+    uint __naaadaaa;
 };
 
-static inline PyObject* py_list_new(void) { return NULL; }
-static inline PyObject* py_dict_new(void) { return NULL; }
+static inline PyObject* py_list_new(void) { return malloc(sizeof(PyObject)); }
+static inline PyObject* py_dict_new(void) { return malloc(sizeof(PyObject)); }
 static inline void py_free(PyObject* obj) { (void)obj; }
 static inline void py_list_append(PyObject* restrict list, PyObject* obj) { (void)list; (void)obj; }
 static inline void py_dict_set(PyObject* const restrict dict, PyObject* const restrict key, PyObject* const restrict value) { (void)dict; (void)key; (void)value; }
@@ -150,7 +182,7 @@ struct Decoding {
     PyObject* repeateds[];
 };
 
-#define started (decoding->pos)
+#define start (decoding->start)
 #define pos (decoding->pos)
 #define end (decoding->end)
 #define repeateds (decoding->repeateds)
@@ -166,6 +198,9 @@ static int decode_dict (Decoding* const restrict decoding, PyObject* const restr
     return 0;
 }
 
+#define dbg(fmt, ...) printf("DECODING: " fmt "\n", ##__VA_ARGS__)
+#define dbg_decode(fmt, ...) printf("DECODING AT OFFSET %llu: " fmt "\n", (uintll)(pos - start), ##__VA_ARGS__)
+
 static int decode_list (Decoding* const restrict decoding, PyObject* const restrict list) {
 
 
@@ -180,6 +215,7 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
         SCODE code;
         SWORD word;
         uint repeatedID;
+        uint len;
 
         if (pos >= end)
             /* UÉ, CADÊ O FIM DESSA LISTA? */
@@ -190,9 +226,13 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 
             case SCODE_EOF:
 
+                dbg_decode("EOF");
+
                 return DECODE_EOF;
 
             case SCODE_LIST:
+
+                dbg_decode("LIST");
 
                 // TODO: FIXME: suportar também tuple =]
                 obj = py_list_new();
@@ -203,6 +243,8 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 
             case SCODE_DICT:
 
+                dbg_decode("DICT");
+
                 // cria o dicionário
                 // adiciona o dicionáiro à lista
                 obj = py_dict_new();
@@ -212,6 +254,8 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
                 DECODE_ENTER_LEVEL(decode_dict(decoding, obj));
 
             case SCODE_NULL:
+
+                dbg_decode("OPEN NULL");
 
                 // adiciona o NULL à lista
 
@@ -282,6 +326,33 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 
                 break;
 
+            case SCODE_BINARY:
+            case SCODE_STRING:
+            case SCODE_INT64:
+            case SCODE_FLOAT64:
+
+                if ((pos + 8) > end) {
+                    dbg_decode("INCOMPLETE BINARY|STRING|INT64|FLOAT64");
+                    return DECODE_INCOMPLETE;
+                }
+#if 0
+                word  = pos+; word <<= 8;
+                word |= pos+; word <<= 8;
+                word |= pos+; word <<= 8;
+                word |= pos+; word <<= 8;
+                word |= pos+; word <<= 8;
+                word |= pos+; word <<= 8;
+                word |= pos+; word <<= 8;
+                word |= pos+;
+#else
+                word = *(u64*)pos; pos += 8; //__builtin_bswap64
+#endif
+                // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
+
+                show(code, word, NULL);
+
+                break;
+
             default:
 #if 0
                 word  = pos[7]; word <<= 8;
@@ -295,22 +366,23 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 #else
                 word = *(u64*)pos; //__builtin_bswap64
 #endif
-                if (code > 0b1111) {
-                    uint len = (code >> 3) & 0b111U;
-                    word &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
-                    word <<= 3;
-                    word |= code & 0b111U;
-                    code >>= 6;
-                    pos += len;
-                } else
-                    pos += 8;
+
+                len = (code >> 3) & 0b111U;
+
+                word &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
+                word <<= 3;
+                word |= code & 0b111U;
+                code >>= 6;
+                pos += len;
 
                 // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
+
+                show(code, word, NULL);
         }
     }
 }
 
-#undef started
+#undef start
 #undef pos
 #undef end
 #undef repeateds
@@ -329,39 +401,41 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 //      THIS = NULL
 //      VALUE = THIS
 //      SEGUE EM FRENTE
-#define value_set(x) ({ \
-        this = (x); \
-        if ((this) == NULL) { \
-            ret = DECODE_MALLOC; \
+#define value_set(x) \
+    if ((this = (x)) == NULL) { \
+        dbg_decode("ROOT - NEW OBJECT FAILED"); \
+        ret = DECODE_MALLOC; \
+        break; \
+    } \
+    if (value) { \
+        /* viu um valor antes deste, então ele pertence à repeateds list */ \
+        if (repeateds == repeatedsEnd) { /* não cabe mais nenhum nela */ \
+            dbg_decode("ROOT - TOO MANY REPEATS"); \
+            ret = DECODE_TOO_MANY_REPEATS; /* too many */ \
             break; \
-        } \
-        if (value) { \
-            /* viu um valor antes deste, então ele pertence à repeateds list */ \
-            if (repeateds == repeatedsEnd) { /* não cabe mais nenhum nela */ \
-                ret = DECODE_TOO_MANY_REPEATS; /* too many */ \
-                break; \
-            } /* cabe mais um, coloca ele */ \
-            *repeateds++ = value; \
-        } /* agora este será o último visto */ \
-        value = this; \
-        this = NULL; \
-    })
+        } /* cabe mais um, coloca ele */ \
+        *repeateds++ = value; \
+    } /* agora este será o último visto */ \
+    value = this; \
+    this = NULL; \
 
 // TODO: FIXME: se repeatedsMax for 0, vai analisar primeiro e computar quantos precisa
-static PyObject* decode () {
+static PyObject* decode (void* start_, void*  end_, uint max_) {
+    (void)max_;
 
     int ret = DECODE_CONTINUE;
 
     PyObject* value = NULL;
     PyObject* this = NULL; // TODO: FIXME: está limpando ele?
 
-    u8* start = NULL;
-    u8* pos = start;
-    u8* end = start + 0;
+    u8* start = start_;
+    u8* pos = start_;
+    u8* end = end_; //start +size
     uint repeatedsMax = 65536;
 
     // NOTA: suporta até 4GB -
     if ((end - start) > 0xFFFFFFFF) {
+        dbg("DECODE_TOOBIG");
         ret = DECODE_TOOBIG;
         goto RET;
     }
@@ -369,6 +443,7 @@ static PyObject* decode () {
     Decoding* decoding = malloc(sizeof(Decoding) + repeatedsMax*sizeof(PyObject*));
 
     if (decoding == NULL) {
+        dbg("DECODE_MALLOC");
         ret = DECODE_MALLOC;
         goto RET;
     }
@@ -378,8 +453,10 @@ static PyObject* decode () {
 
     loop {
 
-        if (ret && ret != DECODE_JUNK_AT_END)
+        if (ret && ret != DECODE_JUNK_AT_END) {
+            dbg_decode("VISH");
             break; /* ENCONTROU UM ERRO */
+        }
 
         if (pos == end) {
             /* CHEGOU AO FIM */
@@ -394,8 +471,10 @@ static PyObject* decode () {
             break;
         } /* AINDA NÃO CHEGOU AO FIM */
 
-        if (ret == DECODE_JUNK_AT_END)
+        if (ret == DECODE_JUNK_AT_END) {
+            dbg_decode("HUAHUAA");
             break; /* JÁ LEU OVALOR FINAL E AINDA NÃO CHEGOU AO FIM */
+        }
 
         SCODE code;
         SWORD word;
@@ -407,6 +486,7 @@ static PyObject* decode () {
             case SCODE_STRING:
             case SCODE_INT64: // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
             case SCODE_FLOAT64:
+                dbg_decode("ROOT - VISH");
 #if 0
                 word  = pos[7]; word <<= 8;
                 word |= pos[6]; word <<= 8;
@@ -429,33 +509,43 @@ static PyObject* decode () {
                 } else
                     pos += 8;
 
+                show(code, word, pos);
+
+
                 // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
                 value_set(malloc(sizeof(PyObject)));
 
-                value->code = code;
-                value->word = word;
-                value->data = pos; //?????????????????????????????
+                //////value->code = code;
+                //////value->word = word;
+                //////value->data = pos; //?????????????????????????????
+
 
                 break;
 
             /* NULL | INVALID | FALSE | TRUE não eram para aparecer no repeated, mas suporta, para facilitar o algorítimo */
             case SCODE_NULL:
+                dbg_decode("ROOT - NULL");
                 value_set(None);
                 break;
 
             case SCODE_INVALID:
+                dbg_decode("ROOT - INVALID");
                 value_set(Invalid);
                 break;
 
             case SCODE_FALSE:
+                dbg_decode("ROOT - FALSE");
                 value_set(False);
                 break;
 
             case SCODE_TRUE:
+                dbg_decode("ROOT - TRUE");
                 value_set(True);
                 break;
 
             case SCODE_LIST: /* Listas e dicionários não podem ser repeateds; Se agora um deles aparecer, eles se tornam o valor final. Não poderá haver nada depois deles. */
+
+                dbg_decode("ROOT - LIST");
 
                 value_set(py_list_new());
 
@@ -474,6 +564,8 @@ static PyObject* decode () {
 
             case SCODE_DICT:
 
+                dbg_decode("ROOT - DICT");
+
                 value_set(py_dict_new());
 
                 decoding->start = start;
@@ -490,6 +582,9 @@ static PyObject* decode () {
                 break;
 
             default:
+
+                dbg_decode("UNEXPECTED TOKEN %02X", *pos);
+
                 ret = DECODE_UNEXPECTED_TOKEN;
         }
     }
@@ -568,35 +663,6 @@ static uint encode_code_value (u8* const restrict buff, uint code, u64 value) {
     return len;
 }
 
-static inline void show (PyObject* const restrict obj) {
-
-    union { u64 u64_; double double_; } v;
-
-    v.u64_ = obj->word;
-
-    switch (obj->code) {
-        case SCODE_NULL            : //typeName = "NULL";
-            break;
-        case SCODE_INVALID         : //typeName = "INVALID";
-            break;
-        case SCODE_FALSE           : //typeName = "BOOL FALSE";
-            break;
-        case SCODE_TRUE            : //typeName = "BOOL TRUE";
-            break;
-        case SCODE_INT64           : //typeName = "INT64";
-            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", obj->code, (uintll)obj->word, (uintll)obj->word);
-            break;
-        case SCODE_FLOAT64         : //typeName = "FLOAT64" ;
-            printf("TYPE 0x%02X FLOAT64 0x%016llX %f\n", obj->code, (uintll)v.double_, v.double_);
-            break;
-        case SCODE_EOF             : //typeName = "END OF STREAM" ;
-            break;
-        default:
-            break;
-    }
-    // TODO: FIXME: ao chamar a função, pos tem q ue estar após o CODE+word -> tem que estar no começo da string/binary
-}
-
 int main (void) {
 
     // esses são eternos
@@ -611,9 +677,7 @@ int main (void) {
     memset(buff, 0, sizeof(buff));
 
     buff_ = buff;
-
-    *buff_++ = 0; // the end of repeated values
-
+    buff_++[0] = SCODE_LIST;
     buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000000LL);
     buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD)-0x0000000000000000LL);
     buff_ += encode_code_value(buff_, SCODE_INT64, (SWORD) 0x0000000000000001LL);
@@ -653,8 +717,6 @@ int main (void) {
     } x;
 
     x.double_ = -1.3;
-
-    printf("!!!!!!!FLOAT64 0x%016llX %f\n", (uintll)x.w, (float)x.double_);
 
     buff_ += encode_code_value(buff_, SCODE_FLOAT64, (SWORD)x.w);
 
