@@ -67,20 +67,19 @@ typedef long long           intll;
 typedef unsigned            uint;
 typedef unsigned long long  uintll;
 
-#define REPEATEDS_END 0
 //                       0b????0000U //     repeated ID ??
 // usar um ^SCODE_NULL ao ler o código, e ao escrever o código, assim NULL pode ser 0????
 #define SCODE_BINARY    0b00000000U //  0
 #define SCODE_STRING    0b00000001U //  1 UTF-8
-#define SCODE_INT64     0b00000010U //  2
+#define SCODE_INT64     0b00000010U //  2 9.223.372.036.854.775.808, 9 quintilhões suportados
 #define SCODE_FLOAT64   0b00000011U //  3 IEEE 754-2008
 #define SCODE_NULL      0b00000100U //  4
 #define SCODE_INVALID   0b00000101U //  5
 #define SCODE_FALSE     0b00000110U //  6
 #define SCODE_TRUE      0b00000111U //  7
 #define SCODE_DICT      0b00001000U //  8
-#define SCODE_LIST      0b00001001U //  9             9.223.372.036.854.775.808
-#define SCODE_EOF       0b00001010U // 10             -18.446.744.073.709.551.616 18 quintilhões suportados
+#define SCODE_LIST      0b00001001U //  9
+#define SCODE_EOF       0b00001010U // 10   // quando a última mensagem seria um SCODE_LD_END ou SCODE_LD_END1 N
 #define SCODE_LD_END    0b00001011U // 11
 #define SCODE_LD_END1   0b00001100U // 12 followed by 1 byte count of ends
 #define SCODE_REPEATED1 0b00001101U // 13 repeated ID 1  bytes
@@ -95,171 +94,427 @@ typedef unsigned long long  uintll;
    //                    ||||||
    //                    LEN|||
    //                       RBITS
-#define SCODE_UNEXPECTED_END 0x100U // NÃO APARECE NA STREAM, É UM EVENTO D EERRO
-
-// Se retornar NULL - encontrou o EOF, explícito
-// Se retornar end - chegou ao fim do buffer, consumiu tudo o que tem nele, mas ainda não terminou a stream
-// Se retornar qualquer outro valor - ainda não dá para ler este item por completo, precisa carregar mais do buffer (após o end)
-typedef intll DeserializeRet;
 
 typedef uint SCODE;
 typedef u64 SWORD;
 
-typedef struct DeserializeRepeated DeserializeRepeated;
+typedef struct PyObject PyObject;
+typedef struct PyList PyList;
+typedef struct PyDict PyDict;
 
-struct DeserializeRepeated { //  TODO: FIXME: ---> no ctx->repeateds, ja salvar o code, value
+struct PyList;
+struct PyDict;
+
+struct PyObject { //  TODO: FIXME: ---> no decoding->repeateds, ja salvar o code, value
     SCODE code;
-    u64 value;
-    void* data; // onde começam os dados
+    SWORD word;
+    void* data;
 };
 
-typedef struct DeserializeContext DeserializeContext;
+static inline PyList* py_list_new(void) { return NULL; }
+static void py_list_append(PyList* restrict list, PyObject* obj) { (void)list; (void)obj; }
+static inline PyDict* py_dict_new(void) { return NULL; }
+static void py_dict_set(PyObject* key, PyObject* value) { (void)key; (void)value; }
 
-struct DeserializeContext {
-    u8* pos;
-    u8* end;
-    u8* start;
-    DeserializeRet (*readen)(DeserializeContext*, SCODE, SWORD, void* data); // called om each value readen
-    DeserializeRepeated* repeated;
-    DeserializeRepeated* repeatedsEnd;
-    DeserializeRepeated repeateds[]; // st->start + st->repeateds[ID] aponta para o offset do primeiro
+#define DECODE_CONTINUE          0
+#define DECODE_EOF              -1// EOF quebra todos os níveis independente de quantos forem
+#define DECODE_ERR              -2
+#define DECODE_TOOBIG           -3
+#define DECODE_MALLOC           -4
+#define DECODE_TOO_MANY_REPEATS -5
+#define DECODE_BAD_REPEAT_ID    -6 // TODO: FIXME: quando há um REPEAT ID em que o ID não existe
+#define DECODE_INCOMPLETE       -7 // TODO :FIXME:  when this value is past the end
+#define DECODE_JUNK_AT_END      -8
+#define DECODE_NO_VALUE         -9
+
+    // TODO: FIXME: pré gerar esses exceptions, e depois exceptions[-(ret+1)]
+
+// se retornou DECODE_EOF, mantém ele
+// se retornou >  0 é para retornar mais esse N número de níveis; então retorna já descontando 1
+// se retornou == 0 (DECODE_CONTINUE) (, simplesment eterminou o nível de cima, e continua neste
+// se retornou <  0 é um erro, e deve ser mantido
+#define RETURNFROMLEVEL(x) ({ if ((ret = (x))) return ret - (ret > 0); })
+
+static PyObject* None;
+static PyObject* Invalid;
+static PyObject* False;
+static PyObject* True;
+
+typedef struct Decoding Decoding;
+
+struct Decoding {
+    const u8* start;
+    const u8* pos;
+    const u8* end;
+    PyObject** repeatedsUnknown;
+    PyObject* repeateds[];
 };
 
-#define DESERIALIZE_SUCCESS              0LL
-#define DESERIALIZE_CONTINUE             0LL
-#define DESERIALIZE_END                  LLONG_MAX
-#define DESERIALIZE_ERR                  -1
-#define DESERIALIZE_ERR_TOOBIG           (LLONG_MIN + 6)
-#define DESERIALIZE_ERR_MALLOC           (LLONG_MIN + 5)
-#define DESERIALIZE_ERR_NO_REPEATS_END   (LLONG_MIN + 4)  // unexpected end before REPEATEDS_END
-#define DESERIALIZE_ERR_TOO_MANY_REPEATS (LLONG_MIN + 3)
-#define DESERIALIZE_ERR_UNEXPECTED_END   (LLONG_MIN + 2) // reached end but not EOF
-#define DESERIALIZE_ERR_NO_REPEATED      (LLONG_MIN + 1) // TODO: FIXME: quando há um REPEAT ID em que o ID não existe
-#define DESERIALIZE_ERR_INCOMPLETE       (LLONG_MIN    ) // TODO :FIXME:  when this value is past the end
+#define started (decoding->pos)
+#define pos (decoding->pos)
+#define end (decoding->end)
+#define repeateds (decoding->repeateds)
+#define repeatedsEnd (decoding->repeatedsUnknown)
 
-static DeserializeRet deserialize_dict(DeserializeContext* restrict const ctx) {
-    (void)ctx;
-    return DESERIALIZE_CONTINUE;
+static int decode_dict (Decoding* const restrict decoding, PyDict* const restrict dict) {
+    (void)decoding;
+    (void)dict;
+    return 0;
 }
 
-static DeserializeRet deserialize_list(DeserializeContext* restrict const ctx) {
+static int decode_list (Decoding* const restrict decoding, PyList* const restrict list) {
 
     loop {
 
-        DeserializeRet ret;
-        DeserializeRepeated* repeated;
+        int ret;
+        PyList* list2;
+        PyDict* dict2;
+        SCODE code;
+        SWORD word;
         uint repeatedID;
-        uint code;
-        SWORD value;
 
-        if (ctx->pos == ctx->end)     // TODO: FIXME: nao tem mais nada, mas o cara diz DESERIALIZE_CONTINUE -> 0 -1 - -1 -< ou seja, seg uem frente com o erro
-            return ctx->readen(ctx, SCODE_UNEXPECTED_END, 0, NULL) - 1;
+        if (pos == end)
+            return DECODE_END;
 
-        switch ((code = *(ctx->pos++))) {
+        if (pos >= end)
+            return DECODE_INCOMPLETE;
+
+        switch ((code = *pos++)) {
             // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
+
+            case SCODE_EOF:
+
+                return DECODE_END;
 
             case SCODE_LIST:
 
-                if ((ret = ctx->readen(ctx, code, 0, NULL)))
-                    return ret - 1;
+                // TODO: FIXME: suportar também tuple =]
+                list2 = py_list_new();
 
-                if ((ret = deserialize_list(ctx)))
-                    return ret - 1; // tem mais um para sair
+                py_list_append(list, (PyObject*)list2);
+
+                RETURNFROMLEVEL(decode_list(decoding, list2));
 
                 break;
 
             case SCODE_DICT:
 
-                if ((ret = ctx->readen(ctx, code, 0, NULL)))
-                    return ret - 1;
+                // cria o dicionário
+                // adiciona o dicionáiro à lista
+                dict2 = py_dict_new();
 
-                if ((ret = deserialize_dict(ctx)))
-                    return ret - 1;
+                py_list_append(list, (PyObject*)dict2);
+
+                RETURNFROMLEVEL(decode_dict(decoding, dict2));
 
                 break;
 
-            case SCODE_EOF:
+            case SCODE_NULL:
 
-                if ((ret = ctx->readen(ctx, code, 0, NULL)))
-                    return ret - 1;
+                // adiciona o NULL à lista
 
-                return DESERIALIZE_END;
+                break;
 
-            case SCODE_NULL ... SCODE_TRUE:
+            case SCODE_INVALID:
 
-                if ((ret = ctx->readen(ctx, code, 0, NULL)))
-                    return ret - 1;
+                // adiciona o INVALID à lista
+                // INVALID será um objeto constante :/
+
+                break;
+
+            case SCODE_FALSE:
+
+                // adiciona o False à lista
+
+                break;
+
+            case SCODE_TRUE:
+
+                // adiciona o True à lista
 
                 break;
 
             case SCODE_LD_END:
 
-                if ((ret = ctx->readen(ctx, code, 0, NULL)))
-                    return ret - 1;
-
                 return 0;
 
             case SCODE_LD_END1:
 
-                code = (ctx->pos++)[0] + 1; // termina este level e mais esses N + 1 aí
-
-                if ((ret = ctx->readen(ctx, SCODE_LD_END, code, NULL)))
-                    return ret - 1;
-
-                return code - 1;
+                // termina este level e mais esses N + 1 aí
+                return *pos++; // TODO: FIXME: +1 aqui?
 
             case SCODE_REPEATED1:
 
-                if      (code == SCODE_REPEATED1) repeatedID =                                             ctx->pos[0];
-                else if (code == SCODE_REPEATED2) repeatedID =                       (ctx->pos[1] <<  8) | ctx->pos[0];
-                else if (code == SCODE_REPEATED3) repeatedID = (ctx->pos[2] << 16) | (ctx->pos[1] << 16) | ctx->pos[0];
+                repeatedID = *pos++;
 
                 // TODO:  FIXME: esse ID existe mesmo? :O
-                repeated = ctx->repeateds + repeatedID;
+                py_list_append(list, repeateds[repeatedID]);
 
-                ctx->pos += code - SCODE_REPEATED1 + 1;
+                break;
 
-                if ((ret = ctx->readen(ctx, repeated->code, repeated->value, repeated->data))) //, TODO: FIXME: repeated->data
-                    return ret - 1;
+            case SCODE_REPEATED2:
+
+                repeatedID  = *pos++;
+                repeatedID <<= 8;
+                repeatedID |= *pos++;
+
+                // TODO:  FIXME: esse ID existe mesmo? :O
+                py_list_append(list, repeateds[repeatedID]);
+
+                break;
+
+            case SCODE_REPEATED3:
+
+                repeatedID  = *pos++;
+                repeatedID <<= 8;
+                repeatedID |= *pos++;
+                repeatedID <<= 8;
+                repeatedID |= *pos++;
+
+                // TODO:  FIXME: esse ID existe mesmo? :O
+                py_list_append(list, repeateds[repeatedID]);
 
                 break;
 
             default:
 #if 0
-                value  = ctx->pos[7]; value <<= 8;
-                value |= ctx->pos[6]; value <<= 8;
-                value |= ctx->pos[5]; value <<= 8;
-                value |= ctx->pos[4]; value <<= 8;
-                value |= ctx->pos[3]; value <<= 8;
-                value |= ctx->pos[2]; value <<= 8;
-                value |= ctx->pos[1]; value <<= 8;
-                value |= ctx->pos[0];
+                word  = pos[7]; word <<= 8;
+                word |= pos[6]; word <<= 8;
+                word |= pos[5]; word <<= 8;
+                word |= pos[4]; word <<= 8;
+                word |= pos[3]; word <<= 8;
+                word |= pos[2]; word <<= 8;
+                word |= pos[1]; word <<= 8;
+                word |= pos[0];
 #else
-                value = *(u64*)ctx->pos; //__builtin_bswap64
+                word = *(u64*)pos; //__builtin_bswap64
 #endif
                 if (code > 0b1111) {
                     uint len = (code >> 3) & 0b111U;
-                    value &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
-                    value <<= 3;
-                    value |= code & 0b111U;
+                    word &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
+                    word <<= 3;
+                    word |= code & 0b111U;
                     code >>= 6;
-                    ctx->pos += len;
+                    pos += len;
                 } else
-                    ctx->pos += 8;
+                    pos += 8;
 
                 // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
-
-                if ((ret = ctx->readen(ctx, code, value, ctx->pos)))
-                    return ret - 1;
         }
     }
 }
 
+#undef started
+#undef pos
+#undef end
+#undef repeateds
+#undef repeatedsEnd
+
+/* SE JÁ TINHA ALGUM VALUE, EMPURRA ELE PARA A LISTA DE REPEATEDS */
+/* TORNA O THIS O NOVO VALUE FINAL */
+/* ESQUECE O THIS */
+/* PASSA A USAR O VALUE */
+// ao sair daqui:
+//      THIS INALTERADO
+//      VALUE INALTERADO
+//      RET = DECODE_TOO_MANY_REPEATS
+//      BREAK
+// ou
+//      THIS = NULL
+//      VALUE = THIS
+//      SEGUE EM FRENTE
+#define value_set(x) ({ \
+        this = (x); \
+        if ((this) == NULL) { \
+            ret = DECODE_MALLOC; \
+            break; \
+        } \
+        if (value) { \
+            /* viu um valor antes deste, então ele pertence à repeateds list */ \
+            if (repeateds == repeatedsEnd) { /* não cabe mais nenhum nela */ \
+                ret = DECODE_TOO_MANY_REPEATS; /* too many */ \
+                break; \
+            } /* cabe mais um, coloca ele */ \
+            *repeateds++ = value; \
+        } /* agora este será o último visto */ \
+        value = this; \
+        this = NULL; \
+    })
+
+// TODO: FIXME: se repeatedsMax for 0, vai analisar primeiro e computar quantos precisa
+static PyObject* decode () {
+
+    int ret = DECODE_CONTINUE;
+
+    PyObject* value = NULL;
+    PyObject* this = NULL; // TODO: FIXME: está limpando ele?
+
+    u8* start = NULL;
+    u8* pos = start;
+    u8* end = start + 0;
+    uint repeatedsMax = 65536;
+
+    // NOTA: suporta até 4GB -
+    if ((end - start) > 0xFFFFFFFF) {
+        ret = DECODE_TOOBIG;
+        goto RET;
+    }
+
+    Decoding* decoding = malloc(sizeof(Decoding) + repeatedsMax*sizeof(PyObject*));
+
+    if (decoding == NULL) {
+        ret = DECODE_MALLOC;
+        goto RET;
+    }
+
+    PyObject** repeateds = decoding->repeateds;
+    PyObject** repeatedsEnd = decoding->repeateds + repeatedsMax; /* Por enquanto o limite que tepos é de onde termina o buffer */
+
+    loop {
+
+        if (ret && ret != DECODE_JUNK_AT_END)
+            break; /* ENCONTROU UM ERRO */
+
+        if (pos == end) {
+            /* CHEGOU AO FIM */
+            if (value) {
+                /* LEU UM VALOR */
+                // TODO: FIXME: SUCCESS - agora sim refcount o value!!!
+                //value.refCount++;
+                /* LIMPA UMA POSSÍVEL MARCA DECODE_JUNK_AT_END */
+                ret = DECODE_CONTINUE;
+            } else /* MAS NÃO LEU NENHUM VALOR */
+                ret = DECODE_NO_VALUE;
+            break;
+        } /* AINDA NÃO CHEGOU AO FIM */
+
+        if (ret == DECODE_JUNK_AT_END)
+            break; /* JÁ LEU OVALOR FINAL E AINDA NÃO CHEGOU AO FIM */
+
+        SCODE code;
+        SWORD word;
+
+        switch ((code = *(pos++)) {
+
+            /* NULL | INVALID | FALSE | TRUE | BINARY | STRING | INT64 | FLOAT64 a gente ainda não sabe se é o valor final ou só mais um na lista de repeateds; então vai pegando e colocando na lista, e lembrando sempre do último */
+            case SCODE_BINARY:
+            case SCODE_STRING:
+            case SCODE_INT64: // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
+            case SCODE_FLOAT64:
+#if 0
+                word  = pos[7]; word <<= 8;
+                word |= pos[6]; word <<= 8;
+                word |= pos[5]; word <<= 8;
+                word |= pos[4]; word <<= 8;
+                word |= pos[3]; word <<= 8;
+                word |= pos[2]; word <<= 8;
+                word |= pos[1]; word <<= 8;
+                word |= pos[0];
+#else
+                word = *(u64*)pos; //__builtin_bswap64
+#endif
+                if (code > 0b1111) {
+                    uint len = (code >> 3) & 0b111U;
+                    word &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
+                    word <<= 3;
+                    word |= code & 0b111U;
+                    code >>= 6;
+                    pos += len;
+                } else
+                    pos += 8;
+
+                // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
+                value_set(malloc(sizeof(PyObject)));
+
+                value->code = code;
+                value->word = word;
+                value->data = pos; //?????????????????????????????
+
+                break;
+
+            /* NULL | INVALID | FALSE | TRUE não eram para aparecer no repeated, mas suporta, para facilitar o algorítimo */
+            case SCODE_NULL:
+                value_set(None);
+                break;
+
+            case SCODE_INVALID:
+                value_set(Invalid);
+                break;
+
+            case SCODE_FALSE:
+                value_set(False);
+                break;
+
+            case SCODE_TRUE:
+                value_set(True);
+                break;
+
+            case SCODE_LIST: /* Listas e dicionários não podem ser repeateds; Se agora um deles aparecer, eles se tornam o valor final. Não poderá haver nada depois deles. */
+
+                value_set((py_list_new());
+
+                decoding->start = start;
+                decoding->pos = pos;
+                decoding->end = end;
+                decoding->repeatedsUnknown = repeateds; /* O repeateds ESTÁ APONTANDO PARA DEPOIS DO ÚLTIMO; ESTE É O LIMITE DOS CONHECIDOS */
+
+                /* SE FOR ERRO PRESERVA O ERRO */
+                if ((ret = decode_list(decoding, value)) == DECODE_CONTINUE)
+                    ret = DECODE_JUNK_AT_END; /* ESTE NÓS SABEMOS QUE FOI O ÚLTIMO */
+                elif (ret > 0)
+                    ret = DECODE_ERR; /* AINDA ESTÁ QUEBRANDO NÍVELS, MAS ESTAMOS NO ROOT */
+
+                break;
+
+            case SCODE_DICT:
+
+                value_set(py_dict_new());
+
+                decoding->start = start;
+                decoding->pos = pos;
+                decoding->end = end;
+                decoding->repeatedsUnknown = repeateds;
+
+                /* SE FOR ERRO PRESERVA O ERRO */
+                if ((ret = decode_dict(decoding, value)) == DECODE_CONTINUE)
+                    ret = DECODE_JUNK_AT_END; /* ESTE NÓS SABEMOS QUE FOI O ÚLTIMO */
+                elif (ret > 0)
+                    ret = DECODE_ERR; /* AINDA ESTÁ QUEBRANDO NÍVELS, MAS ESTAMOS NO ROOT */
+
+                break;
+
+            default:
+                ret = DECODE_UNEXPECTED_TOKEN;
+        }
+    }
+
+RET:
+    if value;
+        py_free(value);
+
+    if this:
+        py_free(this);
+
+    while (repeateds != decoding->repeateds)
+        py_free(repeateds+=);
+
+    free(decoding);
+
+    if (ret == DECODE_CONTINUE)
+        return value;
+
+    // TODO: FIXME: criar a exceção
+    return NULL;
+}
 
 // TODO: FIXME: serialize( buff, buffEnd, code, word, data )
 
+// ON SERIALIZATION, NEVER WRITE A SCODE_LD_END DIRECTLY;
+// acumulate all list/dict closeds;
+//  when hiting anything else, flush it
+
 // code é um SCODE_BINARY / SCODE_STRING / SCODE_INT64 / SCODE_INT64 / SCODE_FLOAT_POS / SCODE_FLOAT_NEG
-static uint serialize_code_value (u8* const restrict buff, uint code, u64 value) {
+static uint encode_code_value (u8* const restrict buff, uint code, u64 value) {
 
     uint len;
 
@@ -307,98 +562,13 @@ static uint serialize_code_value (u8* const restrict buff, uint code, u64 value)
     return len;
 }
 
-// TODO: FIXME: se repeatedsMax for 0, vai analisar primeiro e computar quantos precisa
-static DeserializeRet deserialize(u8* const start, u8* const end, DeserializeRet (*readen)(DeserializeContext*, SCODE, SWORD, void* data), uint repeatedsMax) {
+static inline void show (PyObject* const restrict obj) {
 
-    DeserializeContext* ctx;
+    union { u64 u64_; double double_; } v;
 
-    // NOTA: suporta até 4GB -
-    if ((end - start) > 0xFFFFFFFFU)
-        return DESERIALIZE_ERR_TOOBIG;
+    v.u64_ = obj->word;
 
-    if ((ctx = malloc(sizeof(DeserializeContext) + repeatedsMax*sizeof(DeserializeRepeated))) == NULL)
-        return DESERIALIZE_ERR_MALLOC;
-
-    ctx->start = start;
-    ctx->pos = start;
-    ctx->end = end;
-    ctx->readen = readen;
-    ctx->repeated = ctx->repeateds;
-    ctx->repeatedsEnd = ctx->repeateds + repeatedsMax;
-
-    DeserializeRet ret = DESERIALIZE_SUCCESS;
-
-    loop { /* anda até o final dos repeateds, construindo os ids */
-
-        if (ctx->pos == ctx->end) {
-            ret = DESERIALIZE_ERR_NO_REPEATS_END;
-            break;
-        }
-
-        SCODE code = *(ctx->pos++);
-
-        if (code == REPEATEDS_END) {
-            ret = deserialize_list(ctx);
-            break;
-        }
-
-        if (ctx->repeated == ctx->repeatedsEnd) {
-            ret = DESERIALIZE_ERR_TOO_MANY_REPEATS; // too many
-            break;
-        }
-
-        // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
-
-        u64 value;
-#if 0
-        value  = ctx->pos[7]; value <<= 8;
-        value |= ctx->pos[6]; value <<= 8;
-        value |= ctx->pos[5]; value <<= 8;
-        value |= ctx->pos[4]; value <<= 8;
-        value |= ctx->pos[3]; value <<= 8;
-        value |= ctx->pos[2]; value <<= 8;
-        value |= ctx->pos[1]; value <<= 8;
-        value |= ctx->pos[0];
-#else
-        value = *(u64*)ctx->pos; //__builtin_bswap64
-#endif
-        if (code > 0b1111) {
-            uint len = (code >> 3) & 0b111U;
-            value &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
-            value <<= 3;
-            value |= code & 0b111U;
-            code >>= 6;
-            ctx->pos += len;
-        } else
-            ctx->pos += 8;
-
-        // se pos > end, então desconsiderar o resultado (ou precisa ler mais)
-
-        ctx->repeated->value = value;
-        ctx->repeated->code = code;
-        ctx->repeated->data = ctx->pos; //?????????????????????????????
-        ctx->repeated++;
-    }
-
-    free(ctx);
-
-    return ret;
-}
-
-static DeserializeRet show (DeserializeContext* restrict const st, SCODE code, SWORD word, void* data) {
-
-    (void)st;
-    (void)data;
-
-    union {
-        u64 u64_;
-        double double_;
-
-    } v;
-
-    v.u64_ = word;
-
-    switch (code) {
+    switch (obj->code) {
         case SCODE_NULL            : //typeName = "NULL";
             break;
         case SCODE_INVALID         : //typeName = "INVALID";
@@ -408,26 +578,26 @@ static DeserializeRet show (DeserializeContext* restrict const st, SCODE code, S
         case SCODE_TRUE            : //typeName = "BOOL TRUE";
             break;
         case SCODE_INT64           : //typeName = "INT64";
-            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", code, (uintll)word, (uintll)word);
+            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", obj->code, (uintll)obj->word, (uintll)obj->word);
             break;
         case SCODE_FLOAT64         : //typeName = "FLOAT64" ;
-            printf("TYPE 0x%02X FLOAT64 0x%016llX %f\n", code, (uintll)v.double_, v.double_);
+            printf("TYPE 0x%02X FLOAT64 0x%016llX %f\n", obj->code, (uintll)v.double_, v.double_);
             break;
         case SCODE_EOF             : //typeName = "END OF STREAM" ;
-            break;
-        case SCODE_UNEXPECTED_END  : //typeName = "UNEXPECTED END OF STREAM";
             break;
         default:
             break;
     }
-
     // TODO: FIXME: ao chamar a função, pos tem q ue estar após o CODE+word -> tem que estar no começo da string/binary
-
-
-    return DESERIALIZE_CONTINUE;
 }
 
 int main (void) {
+
+    // esses são eternos
+    None = malloc(sizeof(PyObject));
+    Invalid = malloc(sizeof(PyObject));
+    False = malloc(sizeof(PyObject));
+    True = malloc(sizeof(PyObject));
 
     u8 buff[4096];
     u8* buff_;
