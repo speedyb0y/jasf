@@ -126,6 +126,7 @@ static void py_dict_set(PyObject* key, PyObject* value) { (void)key; (void)value
 #define DECODE_INCOMPLETE       -7 // TODO :FIXME:  when this value is past the end
 #define DECODE_JUNK_AT_END      -8
 #define DECODE_NO_VALUE         -9
+#define DECODE_UNEXPECTED_LD_END -10  // lista/dicionário sem fim
 
     // TODO: FIXME: pré gerar esses exceptions, e depois exceptions[-(ret+1)]
 
@@ -133,7 +134,7 @@ static void py_dict_set(PyObject* key, PyObject* value) { (void)key; (void)value
 // se retornou >  0 é para retornar mais esse N número de níveis; então retorna já descontando 1
 // se retornou == 0 (DECODE_CONTINUE) (, simplesment eterminou o nível de cima, e continua neste
 // se retornou <  0 é um erro, e deve ser mantido
-#define RETURNFROMLEVEL(x) ({ if ((ret = (x))) return ret - (ret > 0); })
+#define DECODE_ENTER_LEVEL(x) if ((ret = (x))) return ret - (ret > 0); break;
 
 static PyObject* None;
 static PyObject* Invalid;
@@ -164,6 +165,11 @@ static int decode_dict (Decoding* const restrict decoding, PyDict* const restric
 
 static int decode_list (Decoding* const restrict decoding, PyList* const restrict list) {
 
+
+    // TODO: FIXME: cada objeto criado, seja repeated, o unão, coloca numa lista de objetos_criados
+    // ao sair com erro, limpa tudo
+    // ao sair com sucesso, owna só o value
+
     loop {
 
         int ret;
@@ -173,18 +179,16 @@ static int decode_list (Decoding* const restrict decoding, PyList* const restric
         SWORD word;
         uint repeatedID;
 
-        if (pos == end)
-            return DECODE_END;
-
         if (pos >= end)
-            return DECODE_INCOMPLETE;
+            /* UÉ, CADÊ O FIM DESSA LISTA? */
+            return DECODE_UNEXPECTED_LD_END;
 
         switch ((code = *pos++)) {
             // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
 
             case SCODE_EOF:
 
-                return DECODE_END;
+                return DECODE_EOF;
 
             case SCODE_LIST:
 
@@ -193,9 +197,7 @@ static int decode_list (Decoding* const restrict decoding, PyList* const restric
 
                 py_list_append(list, (PyObject*)list2);
 
-                RETURNFROMLEVEL(decode_list(decoding, list2));
-
-                break;
+                DECODE_ENTER_LEVEL(decode_list(decoding, list2));
 
             case SCODE_DICT:
 
@@ -205,9 +207,7 @@ static int decode_list (Decoding* const restrict decoding, PyList* const restric
 
                 py_list_append(list, (PyObject*)dict2);
 
-                RETURNFROMLEVEL(decode_dict(decoding, dict2));
-
-                break;
+                DECODE_ENTER_LEVEL(decode_dict(decoding, dict2));
 
             case SCODE_NULL:
 
@@ -236,12 +236,16 @@ static int decode_list (Decoding* const restrict decoding, PyList* const restric
 
             case SCODE_LD_END:
 
-                return 0;
+                return DECODE_CONTINUE;
 
             case SCODE_LD_END1:
 
                 // termina este level e mais esses N + 1 aí
-                return *pos++; // TODO: FIXME: +1 aqui?
+                // SCODE_LD_END - quebra 1
+                // SCODE_LD_END1 N - quebra 1 + N
+                // senão "SCODE_LD_END1 0x01" seria o mesmo que SCODE_LD_END;
+                // assim um SCODE_LD_END1 aguenta 256 quebras, e não somente 255 xD
+                return *pos++;
 
             case SCODE_REPEATED1:
 
