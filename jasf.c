@@ -182,6 +182,9 @@ struct Decoding {
     PyObject* repeateds[];
 };
 
+#define dbg_decode(fmt, ...) fprintf(stderr, "DECODING: " fmt "\n", ##__VA_ARGS__)
+#define dbg_decoding(fmt, ...) fprintf(stderr, "DECODING AT OFFSET %llu: " fmt "\n", (uintll)(pos - start), ##__VA_ARGS__)
+
 #define start (decoding->start)
 #define pos (decoding->pos)
 #define end (decoding->end)
@@ -197,9 +200,6 @@ static int decode_dict (Decoding* const restrict decoding, PyObject* const restr
     (void)dict;
     return 0;
 }
-
-#define dbg(fmt, ...) printf("DECODING: " fmt "\n", ##__VA_ARGS__)
-#define dbg_decode(fmt, ...) printf("DECODING AT OFFSET %llu: " fmt "\n", (uintll)(pos - start), ##__VA_ARGS__)
 
 static int decode_list (Decoding* const restrict decoding, PyObject* const restrict list) {
 
@@ -226,13 +226,13 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 
             case SCODE_EOF:
 
-                dbg_decode("EOF");
+                dbg_decoding("EOF");
 
                 return DECODE_EOF;
 
             case SCODE_LIST:
 
-                dbg_decode("LIST");
+                dbg_decoding("LIST");
 
                 // TODO: FIXME: suportar também tuple =]
                 obj = py_list_new();
@@ -243,7 +243,7 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 
             case SCODE_DICT:
 
-                dbg_decode("DICT");
+                dbg_decoding("DICT");
 
                 // cria o dicionário
                 // adiciona o dicionáiro à lista
@@ -255,7 +255,7 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 
             case SCODE_NULL:
 
-                dbg_decode("OPEN NULL");
+                dbg_decoding("OPEN NULL");
 
                 // adiciona o NULL à lista
 
@@ -332,7 +332,7 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
             case SCODE_FLOAT64:
 
                 if ((pos + 8) > end) {
-                    dbg_decode("INCOMPLETE BINARY|STRING|INT64|FLOAT64");
+                    dbg_decoding("INCOMPLETE BINARY|STRING|INT64|FLOAT64");
                     return DECODE_INCOMPLETE;
                 }
 #if 0
@@ -403,14 +403,14 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 //      SEGUE EM FRENTE
 #define value_set(x) \
     if ((this = (x)) == NULL) { \
-        dbg_decode("ROOT - NEW OBJECT FAILED"); \
+        dbg_decoding("ROOT - NEW OBJECT FAILED"); \
         ret = DECODE_MALLOC; \
         break; \
     } \
     if (value) { \
         /* viu um valor antes deste, então ele pertence à repeateds list */ \
         if (repeateds == repeatedsEnd) { /* não cabe mais nenhum nela */ \
-            dbg_decode("ROOT - TOO MANY REPEATS"); \
+            dbg_decoding("ROOT - TOO MANY REPEATS"); \
             ret = DECODE_TOO_MANY_REPEATS; /* too many */ \
             break; \
         } /* cabe mais um, coloca ele */ \
@@ -435,7 +435,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
 
     // NOTA: suporta até 4GB -
     if ((end - start) > 0xFFFFFFFF) {
-        dbg("DECODE_TOOBIG");
+        dbg_decode("DECODE_TOOBIG");
         ret = DECODE_TOOBIG;
         goto RET;
     }
@@ -443,7 +443,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
     Decoding* decoding = malloc(sizeof(Decoding) + repeatedsMax*sizeof(PyObject*));
 
     if (decoding == NULL) {
-        dbg("DECODE_MALLOC");
+        dbg_decode("DECODE_MALLOC");
         ret = DECODE_MALLOC;
         goto RET;
     }
@@ -454,7 +454,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
     loop {
 
         if (ret && ret != DECODE_JUNK_AT_END) {
-            dbg_decode("VISH");
+            dbg_decoding("VISH");
             break; /* ENCONTROU UM ERRO */
         }
 
@@ -472,7 +472,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
         } /* AINDA NÃO CHEGOU AO FIM */
 
         if (ret == DECODE_JUNK_AT_END) {
-            dbg_decode("HUAHUAA");
+            dbg_decoding("HUAHUAA");
             break; /* JÁ LEU OVALOR FINAL E AINDA NÃO CHEGOU AO FIM */
         }
 
@@ -486,7 +486,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
             case SCODE_STRING:
             case SCODE_INT64: // TODO: FIXME: uma versão não otimizada aqui, que lê primeiro ese length para determinar s eprecisa ler mais???
             case SCODE_FLOAT64:
-                dbg_decode("ROOT - VISH");
+                dbg_decoding("ROOT - VISH");
 #if 0
                 word  = pos[7]; word <<= 8;
                 word |= pos[6]; word <<= 8;
@@ -524,28 +524,28 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
 
             /* NULL | INVALID | FALSE | TRUE não eram para aparecer no repeated, mas suporta, para facilitar o algorítimo */
             case SCODE_NULL:
-                dbg_decode("ROOT - NULL");
+                dbg_decoding("ROOT - NULL");
                 value_set(None);
                 break;
 
             case SCODE_INVALID:
-                dbg_decode("ROOT - INVALID");
+                dbg_decoding("ROOT - INVALID");
                 value_set(Invalid);
                 break;
 
             case SCODE_FALSE:
-                dbg_decode("ROOT - FALSE");
+                dbg_decoding("ROOT - FALSE");
                 value_set(False);
                 break;
 
             case SCODE_TRUE:
-                dbg_decode("ROOT - TRUE");
+                dbg_decoding("ROOT - TRUE");
                 value_set(True);
                 break;
 
             case SCODE_LIST: /* Listas e dicionários não podem ser repeateds; Se agora um deles aparecer, eles se tornam o valor final. Não poderá haver nada depois deles. */
 
-                dbg_decode("ROOT - LIST");
+                dbg_decoding("ROOT - LIST");
 
                 value_set(py_list_new());
 
@@ -564,7 +564,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
 
             case SCODE_DICT:
 
-                dbg_decode("ROOT - DICT");
+                dbg_decoding("ROOT - DICT");
 
                 value_set(py_dict_new());
 
@@ -583,7 +583,7 @@ static PyObject* decode (void* start_, void*  end_, uint max_) {
 
             default:
 
-                dbg_decode("UNEXPECTED TOKEN %02X", *pos);
+                dbg_decoding("UNEXPECTED TOKEN %02X", *pos);
 
                 ret = DECODE_UNEXPECTED_TOKEN;
         }
