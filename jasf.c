@@ -156,6 +156,10 @@ struct Decoding {
 #define repeateds (decoding->repeateds)
 #define repeatedsEnd (decoding->repeatedsUnknown)
 
+// TODO: FIXME:  e o que acontece com reys repetidas?
+// e com os valores de keys repetidas?
+//   e com os sub valores de keys/valores  repetidos?
+//      " ao dar erros?
 static int decode_dict (Decoding* const restrict decoding, PyObject* const restrict dict) {
     (void)decoding;
     (void)dict;
@@ -697,3 +701,39 @@ int main (void) {
 
     return 0;
 }
+
+/*
+soube que pelo interior Brasil afora tem muito disso, as pessoas andam armadas no campo mas não por causa de criminalidade, mas por causa dessas luzes que sobrevoam, que pousam no campo, animais aparecem mortos e ninguém sabe o que é.
+e as histórias ficam ali na região, no povo, não vem à tona isso.
+cada um chama de uma coisa, supõe o que é de acordo com a sua religião/conhecimento/imaginação, e vida que segue.
+
+Pra mim esse tipo de coisa é mais comprovador do que fotos, vídeos etc. uma imagem você falsifica, uma notícia de jornal você inventa só para aparecer, mas quando pessoas  reagem de alguma forma e até alteram o modo de vida por causa de um fenômeno, sem sair por aí querendo aparecer na TV  ou ganhando likes em  youtube ou facebook... é porque É REAL.
+
+Uma coisa é mentir para os outros, outra é mentir só para si mesmo, não faz sentido.
+
+A única explicação para isso seria loucura.
+
+Só que aí, seria  muita gente em lugares diferentes e isolados do mundo afora, vivendo a mesma "loucura".
+
+Isso é o que me deixa intrigado com a ufologia: sempre que você tenta analisar, uma hora ou outra chega a um ponto em que para manter o ceticismo, é preciso acreditar no ridículo.
+
+"pessoas vivendo a Vida delas no campo, numa região onde todo mundo conhece histórias de luzes e fenômenos estranhos = são todas loucas/mentirosas (loucas  que sofrem da mesma loucura que muita gente em outros lugares, ou um tipo de gente mentirosa que nunca tenta aparecer na TV ou ganha fama com isso)"
+
+"luzes no céu acompanhando, perseguindo caças = ah é um fenômeno na crosta terrestre que pode provocar luzes na atmosfera (tah, sei que tem uma montanha na China que emite luz, mas outra coisa é uma luz ACOMPANHAR aviões por 30 minutos e reagir à atitude deles)"
+
+"4 grupos de pessoas QUE NÃO SE CONHECIAM e que deram relatos, todos apontando fatos relacionados entre si, totalmente coerentes, sobre o ET de varginha = ah, ET é coisa de retardado lunático. o que aconteceu foi que o exército parou TODO UM COMBOIO, para socorrer um CASAL DE ANÕES na estrada para levar pro hospital dar à luz.
+e o jovem policial que morreu, morreu de alguma doença normal. mesmo ELE SENDO TÃO JOVEM, COM SAÚDE E SE PREPARANDO PARA PRESTAR PROVA PARA VIRAR SARGENTO.
+ele morreu porque pegou uma chuvinha... não tem nada a ver com os vários animais que morreram no zoológico, também sem motivo algum, sem envenenamento, animais de espécies diferetes que estavam saudáveis e simplesmente adoeceram gravemente e morreram de um dia para o outro.
+(embora a irmã do policial tenha inventado que ele contou ter participado da captura de uma criatura, sem usar luvas ou qualquer proteção.
+e vamos chamar de mentirosa também aquela senhora humilde já de idade que ficou abismada quando viu uma criatura horrorosa olhando para ela, naquele mesmo zoológico)"
+
+entendem o que quero dizer?
+você tem que ter MERDA na cabeça para NÃO acreditar em ETs e discos voadores.
+
+o foda é a quantidade de merdas, mentiras, misticismo e enganos que o povo todo insere no assunto, e que fode a porra toda.
+
+e para me deixar mais frustrado ainda, é ter que me perguntar O QUE É FATO DE VERDADE, e o que é DESINFORMAÇÃO PROPOSITAL.
+(vocês realmente acham que esses documentos liberados são verdadeiros? o q ue foi coletado na Operação Prato, em Varginha etc já não está aqui no Brasil há muito tempo.
+a gente só vê o que eles deixam.
+só resta perguntar, o que eles nos deixam ver é a verdade que eles liberam, ou as mentiras que eles querem que tomemos por verade? .-. )
+*/
