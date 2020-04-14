@@ -28,10 +28,14 @@ struct cached_s { // o ID é determinado por   (this - start)/sizeof(cached_s )
   u64 hash;
   u64 hash2; // para strings e binarios  e floats e ints ets  -> só temos 65536 valores, 128 bits de hash é suficiente contra colisões - ainda mais diferenciando binário de UTF-8 válido
   u16 next[2];
-  u16 same;
-  u16 type; // dict keys | str | binary | pos | neg | float
+  u16 same; // precisa disso? // se houver colisão, coloca embaixo na esquerda; quando procurar, se não achar ver no debaixo à esquerda tb
+             // se não der então o hash2 tem que ser menor (64-16)
+  u16 type;   /// --> prev/top? // dict keys | str | binary | pos | neg | float
 };
 
 
 // quem tem que ficar lembrando do type é o decoder
 // quem tem que ficar lembrando do hash e next/same é o encoder
+
+
+
