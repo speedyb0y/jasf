@@ -240,49 +240,9 @@ HASH: {count, obj}
 //                           RBITS|||
 //                                LEN
 
-PRIMEIRO ANALISA TUDO O QUE VAI SER SERIALIZADO
-VE A FREQUENCIA DOS WORDS
-E  DECIDE O X,   Y E Z
-
-
-// 3 BITS, 0,1,2,3 BYTES -> 2^(3+0*8) + 2^(3+1*8) + 2^(3+2*8) + 2^(3+3*8) =  valores acima de 134744072 0x8080808 consumirão Z bytes
-
-typedef u8  SCODE;           valores até   2*2*2*(3^8) = 52
+typedef u8  SCODE;
 typedef u64 SWORD;
 
-static inline void show (SCODE code, SWORD word, void* const restrict buff) {
-
-                                            0x8000000
-    (void)buff;
-
-    union { u64 u64_; double double_; } v;
-
-    v.u64_ = word;
-
-    switch (code) {
-        case SCODE_NULL            : //typeName = "NULL";
-            break;
-        case SCODE_INVALID         : //typeName = "INVALID";
-            break;
-        case SCODE_FALSE           : //typeName = "BOOL FALSE";
-            break;
-        case SCODE_TRUE            : //typeName = "BOOL TRUE";
-            break;
-        case SCODE_INT64           : //typeName = "INT64";
-            printf("TYPE 0x%02X INT64 0x%016llX % 24lld\n", code, (uintll)word, (uintll)word);
-            break;
-        case SCODE_FLOAT64         : //typeName = "FLOAT64" ;
-            printf("TYPE 0x%02X FLOAT64 0x%016llX %f\n", code, (uintll)v.double_, v.double_);
-            break;
-        case SCODE_EOF             : //typeName = "END OF STREAM" ;
-            printf("EOF\n");
-            break;
-        default:
-            printf("??????????? ? %02X \n", code);
-            break;
-    }
-    // TODO: FIXME: ao chamar a função, pos tem q ue estar após o CODE+word -> tem que estar no começo da string/binary
-}
 
 #define DECODE_CONTINUE          0
 #define DECODE_RET_ALL          -1 // Quebra todos os níveis independente de quantos forem
