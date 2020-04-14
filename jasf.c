@@ -72,49 +72,187 @@ typedef long long           intll;
 typedef unsigned            uint;
 typedef unsigned long long  uintll;
 
-#define SCODE_NULL         0b00000000U //   0
-#define SCODE_INVALID      0b00000001U //   1
-// ENCODED 1 BIT
-#define SCODE_BINARY       0b00000010U //   2
-#define SCODE_STRING       0b00000100U //   4  UTF-8
-#define SCODE_REPEAT_N     0b00000110U //   6
-#define SCODE_REPEAT_ID    0b00001000U //   8
-#define SCODE_RET_N        0b00001010U //  10
-#define SCODE_INT64        0b00001100U //  12  9.223.372.036.854.775.808, 9 quintilhões suportados
-#define SCODE_FLOAT64      0b00001110U //  14  IEEE 754-2008
-//                               ||||
-//                              CODE|
-//                                  RBIT
-// REMAINING CONSTANTS
-#define SCODE_FALSE        0b00010000U //  16
-#define SCODE_TRUE         0b00010001U //  17
-//                         0b00010010U //  18
-//                         0b00010011U //  19   WE MAY ADD MORE CO NSTANTS IN THE FUTURE
-//                         0b00010100U //  20
-#define SCODE_LIST         0b00010101U //  21
-#define SCODE_DICT         0b00010110U //  22
-//                         0b00010111U //  23   quando a última mensagem seria um SCODE_LD_END
-//                         0b00011000U //  24
-#define SCODE_RET_ALL      0b00011111U //  31
-// ENCODED 2 BITS AND EXTRA BYTES
-#define SCODE_E_BINARY     0b00100000U //  32
-#define SCODE_E_STRING     0b01000000U //  64 UTF-8
-#define SCODE_E_REPEAT_N   0b01100000U //  96
-#define SCODE_E_REPEAT_ID  0b10000000U // 128
-#define SCODE_E_RET_N      0b10100000U // 196
-#define SCODE_E_INT64      0b11000000U // 192 9.223.372.036.854.775.808, 9 quintilhões suportados
-#define SCODE_E_FLOAT64    0b11100000U // 224 IEEE 754-2008
+//if ( == 0) {
+
+//} elif ( > 0) {
+
+//} else {
+
+//}
+
+// não existe string e nem bytes com length 0
+#define SCODE_NULL       0b00000000U //  0
+#define SCODE_INVALID    0b00000000U //  1
+#define SCODE_FALSE      0b00000000U //  2
+#define SCODE_TRUE       0b00000000U //  3
+#define SCODE_0          0b00000000U //  4  0, 0., -0.
+#define SCODE_1_POS      0b00000000U //  5
+#define SCODE_1_NEG      0b00000000U //  6
+//                       0b00000000U //  7
+#define SCODE_LIST       0b00011110U //  30
+#define SCODE_DICT       0b00011111U //  31
+#define SCODE_DICT_VALUES //  SCODE_DICT key0 key1 SCODE_DICT_VALUES value9 value 1   <- pelo número de keys sabemos o número de valores
+#define SCODE_BINARY     0b00100000U //  32 ENCODED WITH ? BYTES
+#define SCODE_BINARY_1   0b00100...U //     ENCODED WITH 3 BITS and 0 BYTES           8
+#define SCODE_BINARY_2   0b00101...U //     ENCODED WITH 3 BITS and 1 BYTES       2.056
+#define SCODE_BINARY_3   0b00110...U //     ENCODED WITH 3 BITS and 2 BYTES     526.344
+#define SCODE_BINARY_4   0b00111...U //     ENCODED WITH 3 BITS and 3 BYTES 134.744.072
+#define SCODE_STRING     0b01000000U //  64 ENCODED WITH ? BYTES            UTF-8
+#define SCODE_STRING_1   0b01000...U //     ENCODED WITH 3 BITS and 0 BYTES           8
+#define SCODE_STRING_2   0b01001...U //     ENCODED WITH 3 BITS and 1 BYTES       2.056
+#define SCODE_STRING_3   0b01010...U //     ENCODED WITH 3 BITS and 2 BYTES     526.344
+#define SCODE_STRING_4   0b01011...U //  95 ENCODED WITH 3 BITS and 3 BYTES 134.744.072
+#define SCODE_RET        0b01100000U //  96 ENCODED WITH 5 BITS                      32    1 + (0 ... 31) = 32
+#define SCODE_POS_XY     0b10000000U // 128 ENCODED WITH X BITS AND Y BYTES
+#define SCODE_NEG_XY     0b10100000U // 160 ENCODED WITH X BITS AND Y BYTES 18.446.744.073.709.551.616
+#define SCODE_FLOAT_XY   0b11000000U // 192 ENCODED WITH X BITS AND Y BYTES IEEE 754-2008
+#define SCODE_REP_LAST   0b11100000U // 224 ENCODED WITH RBITS NUMBER OF TIMES
+#define SCODE_REP_LAST_B 0b11100100U // 228 ENCODED WITH RBITS NUMBER OF BYTES
+#define SCODE_POS        0b11101000U // 232 ENCODED WITH FIXED BYTES
+#define SCODE_NEG        0b11101001U // 233 ENCODED WITH FIXED BYTES
+#define SCODE_FLOAT      0b11101010U // 234 ENCODED WITH FIXED BYTES
+#define SCODE_REP_LIST   0b11101011U // 235 inicia a lista de repetidos  -SÓ PODE NO COMEÇO, termina ao ver  uma l ist/dict
+#define SCODE_REP_ID_1   0b11101100U // 236 ENCODED WITH RBITS NUMBER OF BYTES >4294967296 IDs  - 1, 2, 3, 4 bytes
+#define SCODE_REP_ID     0b1111....U // 240 ENCODED WITH RBITS ID                       16 IDs
+#defoine SETPARAMS segu ido dos params em bytes
+SCODE_DICTS-> nao precisa, entraraão no repeateds; mesmo se tiverem peso(count) menor, vão entrar lá, no final
+SE UM SCODE_REP_LAST//REP_ID apontar para um modelo dict (instancia) ou modelo , ou repeated
+        // --> então usa as mesmas keys, n amesma ordem
+NÃO PRECISA SE PREOCUPAR COM A ORDEM DAS KEYS
+APENAS PEGA
+            HASH_DA_KEY VALOR_DA_KEY VALOR_RELATIVO_A_KEY
+            faz um binary tree com essas hashes
+            se tiver hash repetido, não tem problema, aguentamos até mais de uma key igual =] -> poe no same
+            anda por toda a binary tree e cria  uma string
+                key0|key1|key2
+
+
+
+
+// para os casos em que não sabemos o size total, o SCODE_RET serve como tal
+//  a primeira ocorrencia dele vai para o root,
+//     se ele aparecer de novo é um EOF
+//          assim sabemos que a mensagem n ão oi truncated
+
+// SE UM INTEIRO VIRAR ID, não considerar ele ao analisaras frequências para os bits e bytes
+
+// Simplesmente conta quantas palavras de tantos bits existem
+counts[__builtin_clz(thisPos)]++;
+
+u64 counts = {
+      0, // clz 0 -> 64-bits 0b1...
+      0, // clz 1 -> 63-bits 0b01...
+      0,
+      0,
+      0,
+      0,
+      0,
+      0, // clz 63 -> 1 bit 0b00...1   USA A CONSTANTE ONE PARA REPRESENTAR ; DESCONSIDER AESSE COUNT NA FREQUENCIA
+      0, // clz 64 -> 0 bit 0b00...0   USA A CONSTANTE ZERO PARA REPRESENTAR ; DESCONSIDER AESSE COUNT NA FREQUENCIA
+    };
+
+// NO CASO DOS NEGS -> USAR O 1NEG
+
+agora se pergunta:
+    um clz 63 vai precisar de quanto espaço, em cada configuração?
+
+
+// ~~~ 0 5 não faz sentido usar 0 Rbit e > 3 len, pois o word máximo é 8 bytes
+
+        ESSES  BITS DESTINADOS AO LEN, sserão fixos
+        ex:
+            0b00 0b01 0b10 0b11
+               1    2    3   5
+para isso, tem que simular
+    (clz0 >>= rbits1)
+    7-clz(clz)/8 -> é quantos bytes vai ocupar
+
+
+1-BYTES FIXED 1 RBITS 4 LEN
+1-BYTES FIXED 2 RBITS 3 LEN
+1-BYTES FIXED 3 RBITS 2 LEN
+1-BYTES FIXED 4 RBITS 1 LEN
+1-BYTES FIXED 5 RBITS 0 LEN
+
+2 FIXED 1 RBITS 4 LEN
+2 FIXED 2 RBITS 3 LEN
+2 FIXED 3 RBITS 2 LEN
+2 FIXED 4 RBITS 1 LEN
+2 FIXED 5 RBITS 0 LEN
+...
+8 FIXED 1 RBITS 4 LEN
+8 FIXED 2 RBITS 3 LEN
+8 FIXED 3 RBITS 2 LEN
+8 FIXED 4 RBITS 1 LEN
+8 FIXED 5 RBITS 0 LEN
+
+agora que sabe o que cada CLZ ocupa em cada configuração, multiplica eles pela quantidade de vezes que cada clz aparece em counts[clz]
+(
+    QNT_CLZ0 * SPACE_PER_CLZ0_IN_CONFIG_0 +
+    QNT_CLZ1 * SPACE_PER_CLZ1_IN_CONFIG_0 +
+    QNT_CLZ2 * SPACE_PER_CLZ2_IN_CONFIG_0 +
+) -> espaço gasto na configuração 0
+->agora escolhe a melhor
+
+// repeateds se lists podem aparecer não só  no início
+//    LIST_OF_REPEATEDS ... LIST_OF_DICTS ... [LIST|DICT] ...
+//   none
+//  true
+//  int
+// dict
+// list
+// binary
+
+em cada dicionário:
+    soma todos o hash de cada key (mas só se forem strings? :S ou diferenciar tipos *1, <<1+1 etc )
+
+
+{
+HASH: {count, obj}
+HASH: {count, obj}
+}
+
+
+
+
+//1 1 4
+//1-(word >> 1)  = 0   ele, após colocado em 1-bit RBIT,  consome quantos bytes? //2
+//1-(word >> 1)  = 1 cabe em 1  bit
+//1-(word >> 1)  0xFFfff
+
+//-> vai olhando cada POS e se pergunta: quanto espaço vou usar se eu usar a regra LEN fixa X, dinamica Y bits pro RBITS e Z bits pro LEN
+
+//|---> primeiro descobre esse; agora para o tamanho constante, usa length da word mais longa usada
+
+
+
+{
+  // quantos bytes é SCODE_POS
+  // quantos bytes é SCODE_NEG
+  // quantos bytes é SCODE_FLOAT
+  // quantos bytes é SCODE_BINARY
+  // quantos bytes é SCODE_STRING
+}
+
+// ENCODED X BITS AND Y? BYTES
 //                           ||||||||
 //                          CODE|||||  CODE <<= 4; |= RBITS << 3; |= LEN
 //                           RBITS|||
 //                                LEN
 
-typedef uint SCODE;
+PRIMEIRO ANALISA TUDO O QUE VAI SER SERIALIZADO
+VE A FREQUENCIA DOS WORDS
+E  DECIDE O X,   Y E Z
+
+
+// 3 BITS, 0,1,2,3 BYTES -> 2^(3+0*8) + 2^(3+1*8) + 2^(3+2*8) + 2^(3+3*8) =  valores acima de 134744072 0x8080808 consumirão Z bytes
+
+typedef u8  SCODE;           valores até   2*2*2*(3^8) = 52
 typedef u64 SWORD;
 
 static inline void show (SCODE code, SWORD word, void* const restrict buff) {
 
-
+                                            0x8000000
     (void)buff;
 
     union { u64 u64_; double double_; } v;
@@ -310,7 +448,7 @@ static int decode_list (Decoding* const restrict decoding, PyObject* const restr
 #else
                     word = *((u64*)pos)++; // pos += 8; //__builtin_bswap64
 #endif
-                    // descarta os bits que não deveria ter lido
+                    // descarta os bits que não devia ter lido
                     word &= ~(0xFFFFFFFFFFFFFFFFULL << (len*8));
 
                     word <<= 2; // abre espaço para recolocar os 2 bits
