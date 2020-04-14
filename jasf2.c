@@ -20,6 +20,8 @@
 #define REPEAT1   0b11100000U // 14   4 BITS 1 BYTES
 #define REPEAT2   0b11110000U // 15   0 BITS 2 BYTES   !!! então pode ficar ali em cima
 
+REPEAT_LAST
+
 // encode os key do dict de forma ordenada
 // da um hash
 // se se já tiver no DB, substituipelo ID
