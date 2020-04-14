@@ -24,7 +24,7 @@
 // da um hash
 // se se já tiver no DB, substituipelo ID
 
-struct cached_s {
+struct cached_s { // o ID é determinado por   (this - start)/sizeof(cached_s )
   u64 hash;
   u64 hash2; // para strings e binarios  e floats e ints ets  -> só temos 65536 valores, 128 bits de hash é suficiente contra colisões - ainda mais diferenciando binário de UTF-8 válido
   u16 next[2];
@@ -35,6 +35,3 @@ struct cached_s {
 
 // quem tem que ficar lembrando do type é o decoder
 // quem tem que ficar lembrando do hash e next/same é o encoder
-
-
-
