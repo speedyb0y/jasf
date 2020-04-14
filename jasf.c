@@ -130,6 +130,19 @@ APENAS PEGA
 SUPORTAR TANTO LER TUDO DE FORMA CONTÍNUA
 OU  EM BLOCOS
 
+acha e poe no começo
+ou reusa o último e põe no começo
+void*first;
+void*last;
+TUDO EM IDS
+para pequenos dispositivos -> 65536 valores no cache
+            65536*4*8 = 2097152 2mb
+            pois vão ficar 16-bits
+ataques ao h ashing?
+    // pode ser u m hash criptografico entao
+    // pode ser um hasher aleatório tb
+    // de qualquer jeito, strings <= 4*8 bytes estarão quase inteiras ali
+
 ;
 // [um array ID -> offset]
 //[mesmo bu ffer]
@@ -139,7 +152,7 @@ struct intfloat {
     u64 value;
     u32 next[2];
     u32 same; // pois pode ser signed vs unsigned vs fliat
-    u4 signed; // signed, float, unsigned
+    u4 signed; // signed, float, unsigned true false none invalid
     u28 id;
 };
 struct free {
