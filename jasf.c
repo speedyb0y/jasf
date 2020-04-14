@@ -127,6 +127,36 @@ APENAS PEGA
                 key0|key1|key2
 
 
+SUPORTAR TANTO LER TUDO DE FORMA CONTÍNUA
+OU  EM BLOCOS
+
+;
+// [um array ID -> offset]
+//[mesmo bu ffer]
+//cachedStrsbins
+//intfloats
+struct intfloat {
+    u64 value;
+    u32 next[2];
+    u32 same; // pois pode ser signed vs unsigned vs fliat
+    u4 signed; // signed, float, unsigned
+    u28 id;
+};
+struct free {
+  u32 size;
+  u32 next;
+};
+
+struct cachedbin {
+    u64 hash; // soma dos 4
+    u32 next[2];
+    //u32 same;  se colidir coloca no da esquerda? ou no mesmo sentido em que acabou de seguir?
+    //u32 id;
+    u64 v0;
+    u64 v1; // colision só se for com 2^(4*64)
+    u64 v2;
+    u64 v3;
+};
 
 
 // para os casos em que não sabemos o size total, o SCODE_RET serve como tal
