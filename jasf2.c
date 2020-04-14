@@ -1,5 +1,11 @@
-
-// todas as estruturas de mesmo tamanho e/ou //x
+context ID
+5 bits
+5 bits 1 byte
+0 bits 2 bytes
+8224 = 8224 contextos? :/
++65536
+  ->table vs estrutural
+  ->cada um com seu próprio cache
 
 // 1. cacheando as coisas e jogando para o começo, mantém os IDs curtos
 // 2. não faz sentido cachear números pequenos < ???.
