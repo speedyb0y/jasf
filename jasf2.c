@@ -33,6 +33,10 @@ struct cached_s { // o ID é determinado por   (this - start)/sizeof(cached_s )
   u16 type;   /// --> prev/top? // dict keys | str | binary | pos | neg | float
 };
 
+// integrar com o tables
+// o programa que define as colunas
+// e de quais retirar o hash
+// opcode -> entra no modo tables, entra no modo estruturado
 
 // quem tem que ficar lembrando do type é o decoder
 // quem tem que ficar lembrando do hash e next/same é o encoder
