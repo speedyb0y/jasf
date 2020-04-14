@@ -7,6 +7,17 @@ context ID
   ->table vs estrutural
   ->cada um com seu próprio cache
 
+
+tem que lembrar do último obj, após ter sido repetido etc
+ para saber se repete de novo etc
+
+só se repetir continua nele
+  retorna o mesmo size no ponteiro pos, caso já tenha andado (ex keys)
+e atualiza o número de repetições
+     se o ultimo foi do tipo repeatX
+  -> e se pos - ??? >= start
+
+
 // 1. cacheando as coisas e jogando para o começo, mantém os IDs curtos
 // 2. não faz sentido cachear números pequenos < ???.
 #define NULL      0b00000000U //  0
