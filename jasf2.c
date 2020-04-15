@@ -97,29 +97,29 @@ e atualiza o número de repetições
 // 2. não faz mmuito sentido cachear números pequenos
 // 3. números menores que ??? são desnecessários cachear
 // 4. não existe string e nem bytes com length 0
-#define SCODE_NULL       0b00000000U //   0
-#define SCODE_CONTEXT    0b00000001U //   1 muda o contexto  SCODE_CONTEXT seguido de um SCODE_POS
-#define SCODE_INVALID    0b00000010U //   2
-#define SCODE_FALSE      0b00000011U //   3
-#define SCODE_TRUE       0b00000100U //   4
-#define SCODE_LIST       0b00000101U //   5
-#define SCODE_DICT       0b00000110U //   6 SCODE_DICT key0 key1 ... keyN SCODE_DICT value0
-//                       0b00000111U //   7
-#define SCODE_BIN        0b00001000U //   8
-#define SCODE_STR        0b00010000U //  16
-#define SCODE_POS        0b00011000U //  24
-#define SCODE_NEG        0b00100000U //  32
-#define SCODE_FLOAT      0b00101000U //  40
-#define SCODE_REPEAT     0b00110000U //  48
-#define SCODE_CACHED     0b00111000U //  56
-#define SCODE_RET        0b01000000U //  64
-#define SCODE_PARTIAL_1  0b01001000U //  72
-#define SCODE_PARTIAL_2  0b01010000U //  80
-#define SCODE_PARTIAL_3  0b01011000U //  88  SCODE_PARTIAL_7 não vale a pena ->  0b111 + 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF | 0b111 0b11
-#define SCODE_PARTIAL_4  0b01100000U //  96
-#define SCODE_PARTIAL_5  0b01110000U // 112
-#define SCODE_PARTIAL_6  0b01111000U // 120
-#define SCODE_FULL       0b10000000U // 128  hm.. em teorioa então aguentamos até mais do que 64-bits :O
+#define SCODE_NULL         0b00000000U //   0
+#define SCODE_CONTEXT_INIT 0b00000001U //   1 INIT_CONTEXT | U32 ID (para podermos confirmar e também para poder substituir) | U32 CACHE_SIZE (em elementos) | U8 TYPE (TABLE/STRUCTURES) | U8 NAME_LEN | CHAR[] NAME
+#define SCODE_CONTEXT_CHG  0b00000010U //   2 muda o contexto  SCODE_CONTEXT seguido de um SCODE_POS
+#define SCODE_INVALID      0b00000011U //   3
+#define SCODE_FALSE        0b00000100U //   4
+#define SCODE_TRUE         0b00000101U //   5
+#define SCODE_LIST         0b00000110U //   6
+#define SCODE_DICT         0b00000111U //   7 SCODE_DICT key0 key1 ... keyN SCODE_DICT value0
+#define SCODE_BIN          0b00001000U //   8
+#define SCODE_STR          0b00010000U //  16
+#define SCODE_POS          0b00011000U //  24
+#define SCODE_NEG          0b00100000U //  32
+#define SCODE_FLOAT        0b00101000U //  40
+#define SCODE_REPEAT       0b00110000U //  48
+#define SCODE_CACHED       0b00111000U //  56
+#define SCODE_RET          0b01000000U //  64
+#define SCODE_PARTIAL_1    0b01001000U //  72
+#define SCODE_PARTIAL_2    0b01010000U //  80
+#define SCODE_PARTIAL_3    0b01011000U //  88  SCODE_PARTIAL_7 não vale a pena ->    0b111 + 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF |   0b111   0b11
+#define SCODE_PARTIAL_4    0b01100000U //  96
+#define SCODE_PARTIAL_5    0b01110000U // 112
+#define SCODE_PARTIAL_6    0b01111000U // 120
+#define SCODE_FULL         0b10000000U // 128  hm.. em teorioa então aguentamos até mais do que 64-bits :O
 
 // no caso do REPEAT e RET, são sempre 1 <= word <= 0xFFFFFF
 static inline u8* encode_repeat64(u8* restrict pos, SCODE code, uint count) {
