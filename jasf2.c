@@ -127,24 +127,63 @@ static inline u8* encode_repeat64(u8* restrict pos, SCODE code, uint count) {
     // Que tem um, isso já é óbvio
     count--;
 
-    loop {
-        if (count > 0b11111111111111111111U) { // 0xFF 0xFF 0xFF
-            *pos++ = SCODE_PARTIAL_24;
-            *pos++ = count; count >>= 8;
-            *pos++ = count; count >>= 8;
-            *pos++ = count; count >>= 8;
-        } elif (count > 0b111111111111U) { // 0xFF 0xFF
-            *pos++ = SCODE_PARTIAL_16;
-            *pos++ = count; count >>= 8;
-            *pos++ = count; count >>= 8;
-        } elif (count > 0b1111U) { // 0b1111 0xFF
-            *pos++ = SCODE_PARTIAL_12 | (count & 0b1111U); count >>= 4;
-            *pos++ = count; count >>= 8;
+    // Até 3 bits a gente aguenta sozinho
+    code |= count & 0b111U;
+    count >>= 3;
+
+    if (count) {
+        // o resto vai precisar de partials
+        if (count > 0x07FFFFFFU) {
+            *pos++ = SCODE_PARTIAL_5 | (count & 0b111U);
+            count >>= 3;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+        } elif (count > 0x07FFFFU) {
+            *pos++ = SCODE_PARTIAL_4 | (count & 0b111U);
+            count >>= 3;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+        } elif (count > 0x07FFU) {
+            *pos++ = SCODE_PARTIAL_3 | (count & 0b111U);
+            count >>= 3;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
+        } elif (count > 0x07U) {
+            *pos++ = SCODE_PARTIAL_2 | (count & 0b111U);
+            count >>= 3;
+            *pos++ = count;
+            count >>= 8;
+            *pos++ = count;
+            count >>= 8;
         } else {
-            *pos++ = code | count;
-            return pos;
+            *pos++ = SCODE_PARTIAL_1 | (count & 0b111U);
+            count >>= 3;
+            *pos++ = count;
+            count >>= 8;
         }
-     }
+    }
+
+    *pos++ = code;
+
+    return pos;
 }
 
 // Se for para repetir um valor (3*0xFFFF + 257) vezes:
@@ -173,36 +212,6 @@ struct cached_s { // o ID é determinado por   (this - start)/sizeof(cached_s )
 // quem tem que ficar lembrando do type é o decoder
 // quem tem que ficar lembrando do hash e next/same é o encoder
 
-#define SCODE_0          0b00000000U //  4
-#define SCODE_1_POS      0b00000000U //  5
-#define SCODE_1_NEG      0b00000000U //  6
-//                       0b00000000U //  7
-#define SCODE_LIST       0b00011110U //  30
-#define SCODE_DICT       0b00011111U //  31
-#define SCODE_DICT_VALUES //  SCODE_DICT key0 key1 SCODE_DICT_VALUES value9 value 1   <- pelo número de keys sabemos o número de valores
-#define SCODE_BINARY     0b00100000U //  32 ENCODED WITH ? BYTES
-#define SCODE_BINARY_1   0b00100...U //     ENCODED WITH 3 BITS and 0 BYTES           8
-#define SCODE_BINARY_2   0b00101...U //     ENCODED WITH 3 BITS and 1 BYTES       2.056
-#define SCODE_BINARY_3   0b00110...U //     ENCODED WITH 3 BITS and 2 BYTES     526.344
-#define SCODE_BINARY_4   0b00111...U //     ENCODED WITH 3 BITS and 3 BYTES 134.744.072
-#define SCODE_STRING     0b01000000U //  64 ENCODED WITH ? BYTES            UTF-8
-#define SCODE_STRING_1   0b01000...U //     ENCODED WITH 3 BITS and 0 BYTES           8
-#define SCODE_STRING_2   0b01001...U //     ENCODED WITH 3 BITS and 1 BYTES       2.056
-#define SCODE_STRING_3   0b01010...U //     ENCODED WITH 3 BITS and 2 BYTES     526.344
-#define SCODE_STRING_4   0b01011...U //  95 ENCODED WITH 3 BITS and 3 BYTES 134.744.072
-#define SCODE_RET        0b01100000U //  96 ENCODED WITH 5 BITS                      32    1 + (0 ... 31) = 32
-#define SCODE_POS_XY     0b10000000U // 128 ENCODED WITH X BITS AND Y BYTES
-#define SCODE_NEG_XY     0b10100000U // 160 ENCODED WITH X BITS AND Y BYTES 18.446.744.073.709.551.616
-#define SCODE_FLOAT_XY   0b11000000U // 192 ENCODED WITH X BITS AND Y BYTES IEEE 754-2008
-#define SCODE_REP_LAST   0b11100000U // 224 ENCODED WITH RBITS NUMBER OF TIMES
-#define SCODE_REP_LAST_B 0b11100100U // 228 ENCODED WITH RBITS NUMBER OF BYTES
-#define SCODE_POS        0b11101000U // 232 ENCODED WITH FIXED BYTES
-#define SCODE_NEG        0b11101001U // 233 ENCODED WITH FIXED BYTES
-#define SCODE_FLOAT      0b11101010U // 234 ENCODED WITH FIXED BYTES
-#define SCODE_REP_LIST   0b11101011U // 235 inicia a lista de repetidos  -SÓ PODE NO COMEÇO, termina ao ver  uma l ist/dict
-#define SCODE_REP_ID_1   0b11101100U // 236 ENCODED WITH RBITS NUMBER OF BYTES >4294967296 IDs  - 1, 2, 3, 4 bytes
-#define SCODE_REP_ID     0b1111....U // 240 ENCODED WITH RBITS ID                       16 IDs
-#defoine SETPARAMS segu ido dos params em bytes
 SCODE_DICTS-> nao precisa, entraraão no repeateds; mesmo se tiverem peso(count) menor, vão entrar lá, no final
 SE UM SCODE_REP_LAST//REP_ID apontar para um modelo dict (instancia) ou modelo , ou repeated
         // --> então usa as mesmas keys, n amesma ordem
