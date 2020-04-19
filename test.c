@@ -117,7 +117,7 @@ static uint lookupstr(const char* restrict str, uint len) {
         printf("AT LEVEL %u ptr %8llu\n", level, X(ptr));
     }
 
-    printf("NOT FOUND AT THIS %016llX LEVEL %u ptr %016llX\n", X(this), level, X(ptr));
+    printf("NOT FOUND AT THIS %8llu LEVEL %u ptr %8llu\n", X(this), level, X(ptr));
 
     // Sobrescreve o mais antigo
     this = indexes[(index = pos++ % CACHE_SIZE)];
@@ -147,7 +147,7 @@ static uint lookupstr(const char* restrict str, uint len) {
                 // Os demais viram filhos do primeiro, a partir do mesmo slot
                 while (slot--) { encode_s* child; encode_s* w;
                     if ((child = this->childs[slot])) {
-                        printf("child %8llu child->ptr %8llu child->level %8llu child->childs %8llu %8llu | %8llu %8llu | %8llu %8llu | %8llu %8llu | slot %u\n",
+                        printf("child  %8llu child ->ptr %8llu child ->level %8llu child ->childs %8llu %8llu | %8llu %8llu | %8llu %8llu | %8llu %8llu | slot %u\n",
                             X(child),
                             X(child->ptr),
                             (uintll)child->level,
@@ -216,30 +216,28 @@ static uint lookupstr(const char* restrict str, uint len) {
     }
 
 
-    //REUSING THIS  3988080 55390 this->ptr  4564688
-    //child0   325080 child0->ptr  4564688 child0->level       10 child0->childs   325112 99999999 |   325120 99999999 |   325128 99999999 |   325136 99999999 | slot 0
-    //this  3988080 | childs   325080 99999999 99999999 99999999 | ptr  4564688
-    //AT LEVEL 2 ptr  4313552
-    //AT LEVEL 4 ptr   174432
-    //AT LEVEL 6 ptr  3641224
-    //NOT FOUND AT THIS 0000000005F5E0FF LEVEL 6 ptr 0000000000378F88
-    //REUSING THIS  3988152 55391 this->ptr  4608400
-    //child0  4357944 child0->ptr  4608400 child0->level        6 child0->childs  4357976  4684608 |  4357984 99999999 |  4357992  4630104 |  4358000 99999999 | slot 1
-    //child    27216 child->ptr  3988184 child->level        6 child->childs    27248 99999999 |    27256 99999999 |    27264 99999999 |    27272 99999999 | slot 0
-    //this  3988152 | childs    27216  4357944 99999999 99999999 | ptr  4608400
-    //AT LEVEL 2 ptr  1381640
-    //AT LEVEL 4 ptr  1684200
-    //AT LEVEL 6 ptr  3988272
-    //NOT FOUND AT THIS 0000000005F5E0FF LEVEL 6 ptr 00000000003CDB30
-    //REUSING THIS  3988224 55392 this->ptr  1684200
-    //child0  2704680 child0->ptr  1684200 child0->level        6 child0->childs  2704712 99999999 |  2704720 99999999 |  2704728 99999999 |  2704736 99999999 | slot 1
-    //child  3184344 child->ptr  3988256 child->level        6 child->childs  3184376 99999999 |  3184384 99999999 |  3184392 99999999 |  3184400 99999999 | slot 0
-    //this  3988224 | childs  3184344  2704680 99999999 99999999 | ptr  1684200
-    //this  3988224 | childs 99999999 99999999  3988224 99999999 | ptr  3988272 | *ptr  3988224
+    //this  2864664 | childs   810864 99999999 99999999 99999999 | ptr  3553816
+    //AT LEVEL 2 ptr  3933552
+    //AT LEVEL 4 ptr   767560
+    //NOT FOUND AT THIS 99999999 LEVEL 4 ptr   767560
+    //REUSING THIS  2864736 39788 this->ptr  2181416
+    //child0   687024 child0->ptr  2181416 child0->level        6 child0->childs   687056 99999999 |   687064 99999999 |   687072 99999999 |   687080 99999999 | slot 1
+    //child   4037256 child ->ptr  2864768 child ->level        6 child ->childs  4037288 99999999 |  4037296 99999999 |  4037304  3311208 |  4037312 99999999 | slot 0
+    //this  2864736 | childs  4037256   687024 99999999 99999999 | ptr  2181416
+
+    //AT LEVEL 2 ptr   358960
+    //AT LEVEL 4 ptr  1151472
+    //AT LEVEL 6 ptr  3495776
+    //AT LEVEL 8 ptr  4389376
+    //AT LEVEL 10 ptr  3209952
+    //AT LEVEL 12 ptr  2864856
+    //NOT FOUND AT THIS 99999999 LEVEL 12 ptr  2864856
+    //REUSING THIS  2864808 39789 this->ptr  3209952
+    //child0    77760 child0->ptr  3209952 child0->level        4 child0->childs    77792 99999999 |    77800 99999999 |    77808 99999999 |    77816 99999999 | slot 3
+    //child   4240224 child ->ptr  2864840 child ->level        6 child ->childs  4240256 99999999 |  4240264 99999999 |  4240272    67464 |  4240280   534024 | slot 0
+    //this  2864808 | childs  4240224 99999999 99999999    77760 | ptr  3209952
+    //this  2864808 | childs 99999999 99999999  2864808 99999999 | ptr  2864856 | *ptr  2864808
     //Aborted
-
-
-
 
     return this->code;
 }
