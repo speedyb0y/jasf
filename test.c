@@ -25,19 +25,19 @@ typedef struct encode_s encode_s;
 typedef struct decode_s decode_s;
 
 #define CACHE_SIZE 0xFFFF
+#define HEAD_N 512
+#define HEAD_MASK 0b111111111U
+#define HEAD_BITS 9
 #define CHILDS_N 4
 #define CHILDS_MASK 0b11U
 #define CHILDS_BITS 2
-#define HEAD_SIZE 512
-#define HEAD_MASK 0b111111111U
-#define HEAD_BITS 9
 
 struct encode_s {
     u64 hash;
     u64 hash1;
     u64 hash2;
     u32 level;
-    u32 code; // indexes[this->code] -> this - cache
+    u32 code;
     encode_s* childs[CHILDS_N]; // na hash tree
     encode_s** ptr;
 };
@@ -49,9 +49,7 @@ struct decode_s {
 static uint pos;
 static encode_s* indexes[CACHE_SIZE];
 static encode_s cache[CACHE_SIZE];
-static encode_s* strs[HEAD_SIZE];
-
-#define X(x) ((uintll)((x) ? ((void*)(x) - (void*)cache) : (99999999)))
+static encode_s* strs[HEAD_N];
 
 // a soma d etodos os indexes
 // a soma de todos os estrutura->codigo
@@ -98,32 +96,26 @@ static uint lookupstr(const char* restrict str, uint len) {
     encode_s** ptr;
 
     ptr = &strs[hash1 & HEAD_MASK];
-
     level = 0;
 
     while ((this = *ptr)) {
-
         if (this->hash  == hash  &&
             this->hash1 == hash1 &&
             this->hash2 == hash2)
             return this->code;
-
-        //se estiver no último nível, entra no da esquerda
-        // TODO: FIXME: vai dar certo isso?
         ptr = &this->childs[(hash >> level) & CHILDS_MASK];
-
-        level += CHILDS_BITS;
-
-        printf("AT LEVEL %u ptr %8llu\n", level, X(ptr));
+        // TODO: FIXME: vai dar certo isso?
+        if ((level += CHILDS_BITS) >= (64 - CHILDS_BITS))
+            level = 0;
     }
-
-    printf("NOT FOUND AT THIS %8llu LEVEL %u ptr %8llu\n", X(this), level, X(ptr));
 
     // Sobrescreve o mais antigo
     this = indexes[(index = pos++ % CACHE_SIZE)];
 
-    if (this->ptr) {
-        printf("REUSING THIS %8llu %u this->ptr %8llu\n", X(this), index, X(this->ptr));
+    if (((void*)this <= (void*)ptr) && ((void*)ptr < ((void*)this + sizeof(encode_s))))
+        // O escolhido foi o último do path que seguiu
+        ptr = this->ptr;
+    elif (this->ptr) {
         // Estamos em outra hash tree
         // Para o caso deste ser o último
         *this->ptr = NULL;
@@ -135,37 +127,21 @@ static uint lookupstr(const char* restrict str, uint len) {
                 child0->level = this->level;
                 child0->ptr = this->ptr;
                 *child0->ptr = child0;
-                printf("child0 %8llu child0->ptr %8llu child0->level %8llu child0->childs %8llu %8llu | %8llu %8llu | %8llu %8llu | %8llu %8llu | slot %u\n",
-                    X(child0),
-                    X(child0->ptr),
-                    (uintll)child0->level,
-                    X(&child0->childs[0]), X(child0->childs[0]),
-                    X(&child0->childs[1]), X(child0->childs[1]),
-                    X(&child0->childs[2]), X(child0->childs[2]),
-                    X(&child0->childs[3]), X(child0->childs[3]), slot
-                    );
                 // Os demais viram filhos do primeiro, a partir do mesmo slot
                 while (slot--) { encode_s* child; encode_s* w;
                     if ((child = this->childs[slot])) {
-                        printf("child  %8llu child ->ptr %8llu child ->level %8llu child ->childs %8llu %8llu | %8llu %8llu | %8llu %8llu | %8llu %8llu | slot %u\n",
-                            X(child),
-                            X(child->ptr),
-                            (uintll)child->level,
-                            X(&child->childs[0]), X(child->childs[0]),
-                            X(&child->childs[1]), X(child->childs[1]),
-                            X(&child->childs[2]), X(child->childs[2]),
-                            X(&child->childs[3]), X(child->childs[3]), slot
-                            );
-                        encode_s** ptr = &child0->childs[slot];
+                        encode_s** ptr2 = &child0->childs[slot];
                         u64 hash = child->hash;
                         uint level = child->level;
                         // Vai até o fim
-                        while ((w = *ptr)) {
-                            ptr = &w->childs[(hash >> level) & CHILDS_MASK];
+                        while ((w = *ptr2)) {
+                            ptr2 = &w->childs[(hash >> level) & CHILDS_MASK];
                             level += CHILDS_BITS;
+                            if ((level += CHILDS_BITS) >= (64 - CHILDS_BITS))
+                                level = 0;
                         }
                         child->level = level;
-                        child->ptr = ptr;
+                        child->ptr = ptr2;
                         *child->ptr = child;
                     }
                 }
@@ -173,15 +149,6 @@ static uint lookupstr(const char* restrict str, uint len) {
             }
         }
     }
-
-    printf("this %8llu | childs %8llu %8llu %8llu %8llu | ptr %8llu\n",
-        X(this),
-        X(this->childs[0]),
-        X(this->childs[1]),
-        X(this->childs[2]),
-        X(this->childs[3]),
-        X(this->ptr)
-        );
 
     // Encontra um novo ptr
     this->hash  = hash;
@@ -195,49 +162,14 @@ static uint lookupstr(const char* restrict str, uint len) {
     this->ptr = ptr;
     *this->ptr = this;
 
-    if (this->code != index) {
-        printf("??\n");
-        abort();
-    }
-
     if (this->childs[0] != NULL ||
         this->childs[1] != NULL ||
         this->childs[2] != NULL ||
         this->childs[3] != NULL) {
-        printf("this %8llu | childs %8llu %8llu %8llu %8llu | ptr %8llu | *ptr %8llu\n",
-            X(this),
-            X(this->childs[0]),
-            X(this->childs[1]),
-            X(this->childs[2]),
-            X(this->childs[3]),
-            X(this->ptr),
-            X(*this->ptr));
+        //printf("?? %llu %llu = %llu %llu\n", (uintll)this, (uintll)ptr, ((uintll)ptr - (uintll)this),
+            //(uintll)sizeof(encode_s));
         abort();
     }
-
-
-    //this  2864664 | childs   810864 99999999 99999999 99999999 | ptr  3553816
-    //AT LEVEL 2 ptr  3933552
-    //AT LEVEL 4 ptr   767560
-    //NOT FOUND AT THIS 99999999 LEVEL 4 ptr   767560
-    //REUSING THIS  2864736 39788 this->ptr  2181416
-    //child0   687024 child0->ptr  2181416 child0->level        6 child0->childs   687056 99999999 |   687064 99999999 |   687072 99999999 |   687080 99999999 | slot 1
-    //child   4037256 child ->ptr  2864768 child ->level        6 child ->childs  4037288 99999999 |  4037296 99999999 |  4037304  3311208 |  4037312 99999999 | slot 0
-    //this  2864736 | childs  4037256   687024 99999999 99999999 | ptr  2181416
-
-    //AT LEVEL 2 ptr   358960
-    //AT LEVEL 4 ptr  1151472
-    //AT LEVEL 6 ptr  3495776
-    //AT LEVEL 8 ptr  4389376
-    //AT LEVEL 10 ptr  3209952
-    //AT LEVEL 12 ptr  2864856
-    //NOT FOUND AT THIS 99999999 LEVEL 12 ptr  2864856
-    //REUSING THIS  2864808 39789 this->ptr  3209952
-    //child0    77760 child0->ptr  3209952 child0->level        4 child0->childs    77792 99999999 |    77800 99999999 |    77808 99999999 |    77816 99999999 | slot 3
-    //child   4240224 child ->ptr  2864840 child ->level        6 child ->childs  4240256 99999999 |  4240264 99999999 |  4240272    67464 |  4240280   534024 | slot 0
-    //this  2864808 | childs  4240224 99999999 99999999    77760 | ptr  3209952
-    //this  2864808 | childs 99999999 99999999  2864808 99999999 | ptr  2864856 | *ptr  2864808
-    //Aborted
 
     return this->code;
 }
@@ -258,7 +190,7 @@ int main (void) {
 
     pos = 0;
 
-    { uint id = 0; while (id != HEAD_SIZE) strs[id++] = NULL; }
+    { uint id = 0; while (id != HEAD_N) strs[id++] = NULL; }
 
     { uint id = 0;
         do {
@@ -280,29 +212,13 @@ int main (void) {
         } while (++id != CACHE_SIZE);
     }
 
-    str_* buff = malloc(512*1024*1024);
-    str_* end = (void*)buff + 512*1024*1024 - 256;
-    str_* cur = buff;
-
-    do { u64 count = (u64)cur;
-        cur->len = sprintf(cur->str, "%llX%llX%llu",
-            (uintll)(rdtscp() - (count << 32)),
-            (uintll)(rdtscp() + (count << 16)),
-            (uintll)(rdtscp() >> (count & 0b11111))
-            );
-        cur = (void*)cur->str + cur->len + 1;
-    } while (cur < end);
-
-    end = cur;
-
-    cur = buff;
-
-    while (cur < end) {
-        lookupstr(cur->str, cur->len);
-        cur = (void*)cur->str + cur->len + 1;
+    { uintll count = 0;
+        do {
+            char str[256];
+            sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
+            lookupstr(str, strlen(str));
+        } while (++count != (1000*CACHE_SIZE));
     }
-
-    //VERIFY_CACHE();
 
     char* coisas[] = {
 
@@ -313,11 +229,57 @@ int main (void) {
          "BANANA",
           NULL };
 
-    char** coisa = coisas;
+    { char** coisa = coisas;
+        do {
+            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
+        } while (*++coisa);
+        printf("\n");
+    }
 
-    do {
-        printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
-    } while (*++coisa);
+    { uintll count = 0;
+        do {
+            char str[256];
+            sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
+            lookupstr(str, strlen(str));
+        } while (++count != (100*CACHE_SIZE));
+    }
+
+    { char** coisa = coisas;
+        do {
+            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
+        } while (*++coisa);
+        printf("\n");
+    }
+
+    { uintll count = 0;
+        do {
+            char str[256];
+            sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
+            lookupstr(str, strlen(str));
+        } while (++count != (4000));
+    }
+
+    { char** coisa = coisas;
+        do {
+            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
+        } while (*++coisa);
+        printf("\n");
+    }
+
+    { uintll count = 0;
+        do {
+            char str[256];
+            sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
+            lookupstr(str, strlen(str));
+        } while (++count != (4000));
+    }
+
+    { char** coisa = coisas;
+        do {
+            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
+        } while (*++coisa);
+        printf("\n");
+    }
 
     return 0;
 }
