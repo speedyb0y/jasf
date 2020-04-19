@@ -51,6 +51,8 @@ static encode_s* indexes[CACHE_SIZE];
 static encode_s cache[CACHE_SIZE];
 static encode_s* strs[HEAD_SIZE];
 
+#define X(x) ((uintll)((x) ? ((void*)(x) - (void*)cache) : (99999999)))
+
 // a soma d etodos os indexes
 // a soma de todos os estrutura->codigo
 static uint lookupstr(const char* restrict str, uint len) {
@@ -112,16 +114,16 @@ static uint lookupstr(const char* restrict str, uint len) {
 
         level += CHILDS_BITS;
 
-        printf("AT LEVEL %u ptr %016llX\n", level, (uintll)ptr);
+        printf("AT LEVEL %u ptr %8llu\n", level, X(ptr));
     }
 
-    printf("NOT FOUND AT THIS %016llX LEVEL %u ptr %016llX\n", (uintll)this, level, (uintll)ptr);
+    printf("NOT FOUND AT THIS %016llX LEVEL %u ptr %016llX\n", X(this), level, X(ptr));
 
     // Sobrescreve o mais antigo
     this = indexes[(index = pos++ % CACHE_SIZE)];
 
     if (this->ptr) {
-        printf("REUSING THIS %016llX %u this->ptr %016llX\n", (uintll)this, index, (uintll)this->ptr);
+        printf("REUSING THIS %8llu %u this->ptr %8llu\n", X(this), index, X(this->ptr));
         // Estamos em outra hash tree
         // Para o caso deste ser o último
         *this->ptr = NULL;
@@ -133,26 +135,26 @@ static uint lookupstr(const char* restrict str, uint len) {
                 child0->level = this->level;
                 child0->ptr = this->ptr;
                 *child0->ptr = child0;
-                printf("child0 %016llX child0->ptr %016llX child0->level %llu child0->childs %016llX %016llX | %016llX %016llX | %016llX %016llX | %016llX %016llX | slot %u\n",
-                    (uintll)child0,
-                    (uintll)child0->ptr,
+                printf("child0 %8llu child0->ptr %8llu child0->level %8llu child0->childs %8llu %8llu | %8llu %8llu | %8llu %8llu | %8llu %8llu | slot %u\n",
+                    X(child0),
+                    X(child0->ptr),
                     (uintll)child0->level,
-                    (uintll)&child0->childs[0], (uintll)child0->childs[0],
-                    (uintll)&child0->childs[1], (uintll)child0->childs[1],
-                    (uintll)&child0->childs[2], (uintll)child0->childs[2],
-                    (uintll)&child0->childs[3], (uintll)child0->childs[3], slot
+                    X(&child0->childs[0]), X(child0->childs[0]),
+                    X(&child0->childs[1]), X(child0->childs[1]),
+                    X(&child0->childs[2]), X(child0->childs[2]),
+                    X(&child0->childs[3]), X(child0->childs[3]), slot
                     );
                 // Os demais viram filhos do primeiro, a partir do mesmo slot
                 while (slot--) { encode_s* child; encode_s* w;
                     if ((child = this->childs[slot])) {
-                        printf("child %016llX child->ptr %016llX child->level %llu child->childs %016llX %016llX | %016llX %016llX | %016llX %016llX | %016llX %016llX | slot %u\n",
-                            (uintll)child,
-                            (uintll)child->ptr,
+                        printf("child %8llu child->ptr %8llu child->level %8llu child->childs %8llu %8llu | %8llu %8llu | %8llu %8llu | %8llu %8llu | slot %u\n",
+                            X(child),
+                            X(child->ptr),
                             (uintll)child->level,
-                            (uintll)&child->childs[0], (uintll)child->childs[0],
-                            (uintll)&child->childs[1], (uintll)child->childs[1],
-                            (uintll)&child->childs[2], (uintll)child->childs[2],
-                            (uintll)&child->childs[3], (uintll)child->childs[3], slot
+                            X(&child->childs[0]), X(child->childs[0]),
+                            X(&child->childs[1]), X(child->childs[1]),
+                            X(&child->childs[2]), X(child->childs[2]),
+                            X(&child->childs[3]), X(child->childs[3]), slot
                             );
                         encode_s** ptr = &child0->childs[slot];
                         u64 hash = child->hash;
@@ -172,13 +174,13 @@ static uint lookupstr(const char* restrict str, uint len) {
         }
     }
 
-    printf("this %016llX %8llu | childs %016llX %016llX %016llX %016llX | ptr %016llX\n",
-        (uintll)this, (uintll)(this - cache),
-        (uintll)this->childs[0],
-        (uintll)this->childs[1],
-        (uintll)this->childs[2],
-        (uintll)this->childs[3],
-        (uintll)this->ptr
+    printf("this %8llu | childs %8llu %8llu %8llu %8llu | ptr %8llu\n",
+        X(this),
+        X(this->childs[0]),
+        X(this->childs[1]),
+        X(this->childs[2]),
+        X(this->childs[3]),
+        X(this->ptr)
         );
 
     // Encontra um novo ptr
@@ -202,35 +204,43 @@ static uint lookupstr(const char* restrict str, uint len) {
         this->childs[1] != NULL ||
         this->childs[2] != NULL ||
         this->childs[3] != NULL) {
-        printf("this %016llX %8llu | childs %016llX %016llX %016llX %016llX | ptr %016llX | *ptr %016llX\n",
-            (uintll)this, (uintll)(this - cache),
-            (uintll)this->childs[0],
-            (uintll)this->childs[1],
-            (uintll)this->childs[2],
-            (uintll)this->childs[3],
-            (uintll)this->ptr,
-            (uintll)*this->ptr);
+        printf("this %8llu | childs %8llu %8llu %8llu %8llu | ptr %8llu | *ptr %8llu\n",
+            X(this),
+            X(this->childs[0]),
+            X(this->childs[1]),
+            X(this->childs[2]),
+            X(this->childs[3]),
+            X(this->ptr),
+            X(*this->ptr));
         abort();
     }
 
-    //NOT FOUND AT THIS 0000000000000000 LEVEL 4 ptr 000055ADCD5ABD60
-    //REUSING THIS 000055ADCD3CC788 33817 this->ptr 000055ADCD4C1E78
-    //child0 000055ADCD426C08 child0->ptr 000055ADCD4C1E78 child0->level 8 child0->childs 000055ADCD426C28 0000000000000000 | 000055ADCD426C30 000055ADCD1C4BD0 | 000055ADCD426C38 000055ADCD5F7B60 | 000055ADCD426C40 0000000000000000 | slot 3
-    //child 000055ADCD1A7AE8 child->ptr 000055ADCD3CC7B8 child->level 8 child->childs 000055ADCD1A7B08 0000000000000000 | 000055ADCD1A7B10 000055ADCD18DB80 | 000055ADCD1A7B18 000055ADCD1C8A40 | 000055ADCD1A7B20 0000000000000000 | slot 2
-    //child 000055ADCD54CAD0 child->ptr 000055ADCD3CC7A8 child->level 6 child->childs 000055ADCD54CAF0 0000000000000000 | 000055ADCD54CAF8 000055ADCD190760 | 000055ADCD54CB00 0000000000000000 | 000055ADCD54CB08 0000000000000000 | slot 0
-    //this 000055ADCD3CC788    33817 | childs 000055ADCD54CAD0 0000000000000000 000055ADCD1A7AE8 000055ADCD426C08 | ptr 000055ADCD4C1E78
 
-    //AT LEVEL 2 ptr 000055ADCD507690
-    //AT LEVEL 4 ptr 000055ADCD217550
-    //AT LEVEL 6 ptr 000055ADCD283FC0
-    //AT LEVEL 8 ptr 000055ADCD1AAE98
-    //AT LEVEL 10 ptr 000055ADCD3CC800
-    //NOT FOUND AT THIS 0000000000000000 LEVEL 10 ptr 000055ADCD3CC800
-    //REUSING THIS 000055ADCD3CC7D0 33818 this->ptr 000055ADCD1AAE98
-    //child0 000055ADCD1A1D88 child0->ptr 000055ADCD1AAE98 child0->level 10 child0->childs 000055ADCD1A1DA8 0000000000000000 | 000055ADCD1A1DB0 0000000000000000 | 000055ADCD1A1DB8 0000000000000000 | 000055ADCD1A1DC0 0000000000000000 | slot 1
-    //this 000055ADCD3CC7D0    33818 | childs 0000000000000000 000055ADCD1A1D88 0000000000000000 0000000000000000 | ptr 000055ADCD1AAE98
-    //this 000055ADCD3CC7D0    33818 | childs 0000000000000000 0000000000000000 000055ADCD3CC7D0 0000000000000000 | ptr 000055ADCD3CC800 | *ptr 000055ADCD3CC7D0
+    //REUSING THIS  3988080 55390 this->ptr  4564688
+    //child0   325080 child0->ptr  4564688 child0->level       10 child0->childs   325112 99999999 |   325120 99999999 |   325128 99999999 |   325136 99999999 | slot 0
+    //this  3988080 | childs   325080 99999999 99999999 99999999 | ptr  4564688
+    //AT LEVEL 2 ptr  4313552
+    //AT LEVEL 4 ptr   174432
+    //AT LEVEL 6 ptr  3641224
+    //NOT FOUND AT THIS 0000000005F5E0FF LEVEL 6 ptr 0000000000378F88
+    //REUSING THIS  3988152 55391 this->ptr  4608400
+    //child0  4357944 child0->ptr  4608400 child0->level        6 child0->childs  4357976  4684608 |  4357984 99999999 |  4357992  4630104 |  4358000 99999999 | slot 1
+    //child    27216 child->ptr  3988184 child->level        6 child->childs    27248 99999999 |    27256 99999999 |    27264 99999999 |    27272 99999999 | slot 0
+    //this  3988152 | childs    27216  4357944 99999999 99999999 | ptr  4608400
+    //AT LEVEL 2 ptr  1381640
+    //AT LEVEL 4 ptr  1684200
+    //AT LEVEL 6 ptr  3988272
+    //NOT FOUND AT THIS 0000000005F5E0FF LEVEL 6 ptr 00000000003CDB30
+    //REUSING THIS  3988224 55392 this->ptr  1684200
+    //child0  2704680 child0->ptr  1684200 child0->level        6 child0->childs  2704712 99999999 |  2704720 99999999 |  2704728 99999999 |  2704736 99999999 | slot 1
+    //child  3184344 child->ptr  3988256 child->level        6 child->childs  3184376 99999999 |  3184384 99999999 |  3184392 99999999 |  3184400 99999999 | slot 0
+    //this  3988224 | childs  3184344  2704680 99999999 99999999 | ptr  1684200
+    //this  3988224 | childs 99999999 99999999  3988224 99999999 | ptr  3988272 | *ptr  3988224
     //Aborted
+
+
+
+
     return this->code;
 }
 
