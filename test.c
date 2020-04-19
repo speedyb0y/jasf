@@ -53,31 +53,34 @@ static encode_s* strs[HEAD_N];
 
 // a soma d etodos os indexes
 // a soma de todos os estrutura->codigo
-static uint lookupstr(const char* restrict str, uint len) {
+static uint lookup(const void* restrict str, uint len) {
 
     u64 hash  = (u64)len;
     u64 hash1 = (u64)len << 32;
-    u64 hash2 = (u64)len << 58;
+    u64 hash2 = (u64)len << 48;
 
-    while (len) {
-        u64 chr = *(u8*)str++;
-        hash <<= 3;
-        hash  += chr;
-        hash  += hash >> 32;
-        hash1 += chr;
-        hash1 += (chr + len) & 0b1111;
-        hash1 += chr << (chr & 0b1111);
-        hash1 += hash1 >> 32;
-        hash1 += chr;
-        hash2 += chr << (len & 0b1111);
-        hash2 += len << (chr & 0b1111);
-        hash2 += len << (len & 0b1111);
-        hash2 += hash2 >> 32;
-        hash2 += len--;
+    while (len >= sizeof(u64)) {
+        const u64 word = *(u64*)str; str += sizeof(u64);
+        hash  += word & 0xFFFFFFFFULL;
+        hash1 += word >> 32;
+        hash1 += hash;
+        hash2 += hash1 & 0xFFFFFFFFULL;
+        hash  += hash;
+        hash += len;
+        len -= sizeof(u64);
     }
 
-    hash += hash1;
-    hash += hash2;
+    while (len) {
+        const u64 chr = *(u8*)str++;
+        hash  += hash >> 32;
+        hash  += chr;
+        hash1 += hash  << (chr & 0b11111U);
+        hash2 += hash1 << (chr & 0b11111U);
+        hash1 += hash2 << (len & 0b11111U);
+        hash2 += hash1 << (len & 0b11111U);
+        hash2 += len--;
+        hash  += hash2;
+    }
 
     //printf("%016llX %016llX %016llX %u%u%u%u%u%u%u%u\n", (uintll)hash, (uintll)hash1, (uintll)hash2,
         //(uint)((hash >> 7) & 1U),
@@ -104,10 +107,9 @@ static uint lookupstr(const char* restrict str, uint len) {
             this->hash2 == hash2)
             return this->code;
         ptr = &this->childs[(hash >> level) & CHILDS_MASK];
-        // TODO: FIXME: vai dar certo isso?
-        if ((level += CHILDS_BITS) >= (64 - CHILDS_BITS))
-            level = 0;
-    }
+        level += CHILDS_BITS; // TODO: FIXME: vai dar certo isso?
+        level *= level < (64 - CHILDS_BITS);
+    } // (0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66) 62
 
     // Sobrescreve o mais antigo
     this = indexes[(index = pos++ % CACHE_SIZE)];
@@ -130,19 +132,17 @@ static uint lookupstr(const char* restrict str, uint len) {
                 // Os demais viram filhos do primeiro, a partir do mesmo slot
                 while (slot--) { encode_s* child; encode_s* w;
                     if ((child = this->childs[slot])) {
-                        encode_s** ptr2 = &child0->childs[slot];
+                        encode_s** ptr = &child0->childs[slot];
                         u64 hash = child->hash;
                         uint level = child->level;
                         // Vai até o fim
-                        while ((w = *ptr2)) {
-                            ptr2 = &w->childs[(hash >> level) & CHILDS_MASK];
-                            level += CHILDS_BITS;
-                            if ((level += CHILDS_BITS) >= (64 - CHILDS_BITS))
-                                level = 0;
+                        while ((w = *ptr)) {
+                            ptr = &w->childs[(hash >> level) & CHILDS_MASK];
+                            level *= level < (64 - CHILDS_BITS);
                         }
                         child->level = level;
-                        child->ptr = ptr2;
-                        *child->ptr = child;
+                        child->ptr = ptr;
+                        *ptr = child;
                     }
                 }
                 break;
@@ -150,7 +150,6 @@ static uint lookupstr(const char* restrict str, uint len) {
         }
     }
 
-    // Encontra um novo ptr
     this->hash  = hash;
     this->hash1 = hash1;
     this->hash2 = hash2;
@@ -160,7 +159,8 @@ static uint lookupstr(const char* restrict str, uint len) {
     this->childs[2] = NULL;
     this->childs[3] = NULL;
     this->ptr = ptr;
-    *this->ptr = this;
+
+    *ptr = this;
 
     if (this->childs[0] != NULL ||
         this->childs[1] != NULL ||
@@ -171,7 +171,7 @@ static uint lookupstr(const char* restrict str, uint len) {
         abort();
     }
 
-    return this->code;
+    return CACHE_SIZE;
 }
 
 static inline u64 rdtscp(void) {
@@ -216,7 +216,7 @@ int main (void) {
         do {
             char str[256];
             sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
-            lookupstr(str, strlen(str));
+            lookup(str, strlen(str));
         } while (++count != (1000*CACHE_SIZE));
     }
 
@@ -230,9 +230,8 @@ int main (void) {
           NULL };
 
     { char** coisa = coisas;
-        do {
-            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
-        } while (*++coisa);
+        while (*++coisa)
+            printf("COISA %s %u\n", *coisa, lookup(*coisa, strlen(*coisa)));
         printf("\n");
     }
 
@@ -240,14 +239,13 @@ int main (void) {
         do {
             char str[256];
             sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
-            lookupstr(str, strlen(str));
+            lookup(str, strlen(str));
         } while (++count != (100*CACHE_SIZE));
     }
 
     { char** coisa = coisas;
-        do {
-            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
-        } while (*++coisa);
+        while (*++coisa)
+            printf("COISA %s %u\n", *coisa, lookup(*coisa, strlen(*coisa)));
         printf("\n");
     }
 
@@ -255,14 +253,13 @@ int main (void) {
         do {
             char str[256];
             sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
-            lookupstr(str, strlen(str));
+            lookup(str, strlen(str));
         } while (++count != (4000));
     }
 
     { char** coisa = coisas;
-        do {
-            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
-        } while (*++coisa);
+        while (*++coisa)
+            printf("COISA %s %u\n", *coisa, lookup(*coisa, strlen(*coisa)));
         printf("\n");
     }
 
@@ -270,14 +267,13 @@ int main (void) {
         do {
             char str[256];
             sprintf(str, "%llu.%llu", count, (uintll)(rdtscp()));
-            lookupstr(str, strlen(str));
-        } while (++count != (4000));
+            lookup(str, strlen(str));
+        } while (++count != (8000));
     }
 
     { char** coisa = coisas;
-        do {
-            printf("COISA %s %u\n", *coisa, lookupstr(*coisa, strlen(*coisa)));
-        } while (*++coisa);
+        while (*++coisa)
+            printf("COISA %s %u\n", *coisa, lookup(*coisa, strlen(*coisa)));
         printf("\n");
     }
 
