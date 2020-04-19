@@ -10,7 +10,7 @@
 
 #define elif else if
 
-typedef uint8_t  u8;
+typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -114,40 +114,41 @@ static uint lookup(const void* restrict str, uint len) {
     // Sobrescreve o mais antigo
     this = indexes[(index = pos++ % CACHE_SIZE)];
 
-    if (((void*)this <= (void*)ptr) && ((void*)ptr < ((void*)this + sizeof(encode_s))))
-        // O escolhido foi o último do path que seguiu
-        ptr = this->ptr;
-    elif (this->ptr) {
-        // Estamos em outra hash tree
-        // Para o caso deste ser o último
-        *this->ptr = NULL;
-        uint slot = CHILDS_N;
-        // Acha o primeiro child
-        while (slot--) { encode_s* child0;
-            if ((child0 = this->childs[slot])) {
-                // O passa para o parent
-                child0->level = this->level;
-                child0->ptr = this->ptr;
-                *child0->ptr = child0;
-                // Os demais viram filhos do primeiro, a partir do mesmo slot
-                while (slot--) { encode_s* child; encode_s* w;
-                    if ((child = this->childs[slot])) {
-                        encode_s** ptr = &child0->childs[slot];
-                        u64 hash = child->hash;
-                        uint level = child->level;
-                        // Vai até o fim
-                        while ((w = *ptr)) {
-                            ptr = &w->childs[(hash >> level) & CHILDS_MASK];
-                            level *= level < (64 - CHILDS_BITS);
+    if (((void*)this > (void*)ptr) || (((void*)this + sizeof(encode_s)) <= (void*)ptr)) {
+        // O escolhido não foi o último do path que seguiu
+        if (this->ptr) {
+            // Estamos em outra hash tree
+            // Para o caso deste ser o último
+            *this->ptr = NULL;
+            uint slot = CHILDS_N;
+            // Acha o primeiro child
+            while (slot--) { encode_s* child0;
+                if ((child0 = this->childs[slot])) {
+                    // O passa para o parent
+                    child0->level = this->level;
+                    child0->ptr = this->ptr;
+                    *child0->ptr = child0;
+                    // Os demais viram filhos do primeiro, a partir do mesmo slot
+                    while (slot--) { encode_s* child; encode_s* w;
+                        if ((child = this->childs[slot])) {
+                            encode_s** ptr = &child0->childs[slot];
+                            u64 hash = child->hash;
+                            uint level = child->level;
+                            // Vai até o fim
+                            while ((w = *ptr)) {
+                                ptr = &w->childs[(hash >> level) & CHILDS_MASK];
+                                level *= level < (64 - CHILDS_BITS);
+                            }
+                            child->level = level;
+                            child->ptr = ptr;
+                            *ptr = child;
                         }
-                        child->level = level;
-                        child->ptr = ptr;
-                        *ptr = child;
                     }
+                    break;
                 }
-                break;
             }
         }
+        *(this->ptr = ptr) = this;
     }
 
     this->hash  = hash;
@@ -158,18 +159,6 @@ static uint lookup(const void* restrict str, uint len) {
     this->childs[1] = NULL;
     this->childs[2] = NULL;
     this->childs[3] = NULL;
-    this->ptr = ptr;
-
-    *ptr = this;
-
-    if (this->childs[0] != NULL ||
-        this->childs[1] != NULL ||
-        this->childs[2] != NULL ||
-        this->childs[3] != NULL) {
-        //printf("?? %llu %llu = %llu %llu\n", (uintll)this, (uintll)ptr, ((uintll)ptr - (uintll)this),
-            //(uintll)sizeof(encode_s));
-        abort();
-    }
 
     return CACHE_SIZE;
 }
