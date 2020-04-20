@@ -24,10 +24,6 @@ typedef unsigned long long  uintll;
 typedef struct encode_s encode_s;
 typedef struct decode_s decode_s;
 
-#define HEAD_SIZE 512
-#define HEAD_MASK 0b111111111U
-#define HEAD_BITS 9
-
 #define CHILDS_SIZE 4
 #define CHILDS_MASK 0b11U
 #define CHILDS_BITS 2
@@ -45,6 +41,11 @@ struct encode_s {
 typedef struct encode_context_s_i {
     uint pos;
     uint size;
+    uint headSize;
+    uint headMask;
+    u64 hash;
+    u64 hash1;
+    u64 hash2;
     u32* heads;
     u32* indexes;
     encode_s cache[];
@@ -53,6 +54,11 @@ typedef struct encode_context_s_i {
 typedef struct encode_context_s {
     uint pos;
     const uint size;
+    const uint headSize;
+    const uint headMask;
+    const u64 hash;
+    const u64 hash1;
+    const u64 hash2;
     u32* const heads;
     u32* const indexes;
     encode_s cache[];
@@ -63,58 +69,131 @@ struct decode_s {
 };
 
 /* Means no code; it was unknown and hashed instead */
-#define CODE_NEW 0xFFFFFFFFU
 #define CODE_SAME 0xFFFFFFFEU
+#define CODE_NEW  0xFFFFFFFFU
 
-#define FAZ(var, id) (((var) = ctx->cache + (id)) != (encode_s*)ctx->indexes)
+#if 1
+static inline uint CACHE_ID(const encode_context_s* const restrict ctx, const uint id) {
+    if (id > ctx->size) // >=
+        abort();
+    return id;
+}
+
+static inline encode_s* CACHE_NODE(const encode_context_s* const restrict ctx, encode_s* const restrict _node) {
+    if (_node < ctx->cache || _node > (ctx->cache + ctx->size))
+        abort();
+    return _node;
+}
+
+// cria um array do tamanho do cache
+//   seta todos como ctx->size
+static inline void VERIFY_CTX(const encode_context_s* const restrict ctx, uint line) {
+
+    uint count;
+
+    count = ctx->size;
+
+    while (--count) {   //  ptr tem q ue estar entre o head ou o .child[] de algum
+        // All cache[indexes[x]].index -> x
+        if (ctx->cache[ctx->indexes[count]].index != count)
+            abort();
+        // All heads are 0 or its target points to it in it s ptr
+        if (ctx->cache[count].ptr != NULL && *ctx->cache[count].ptr != count) {
+            printf("LINE %u ID %u?\n", line, count);
+            abort();
+        }
+    }
+
+    // All items in cache
+        // all childs point to it
+        // its *ptr points to it
+        // it's ptr is not itself
+        // it's childs are not itself
+        // all ids are 0 <= id < size
+
+    //count = ctx->size;
+    ////while (--count)
+        //printf("%u ", ctx->cache[count].level);
+    //printf("\n");
+}
+
+#define VERIFY_CTX(ctx) VERIFY_CTX((ctx), __LINE__)
+#define CACHE_ID(_id) CACHE_ID(ctx, (_id))
+#define CACHE_NODE(_node) CACHE_NODE(ctx, (_node))
+#else
+#define CACHE_ID(id) (id)
+#endif
+
+#define FAZ(var, id) (CACHE_NODE((var) = ctx->cache + CACHE_ID(id)) != (encode_s*)ctx->indexes)
 
 #define FOLLOW(_node, level, ptr) ({ \
-    (ptr) = &(_node)->childs[(hash >> (level * (level < (64 - CHILDS_BITS)))) & CHILDS_MASK]; \
+    (ptr) = &(CACHE_NODE(_node))->childs[(hash >> (level * (level < (64 - CHILDS_BITS)))) & CHILDS_MASK]; \
     level += CHILDS_BITS; \
     })
 
 #define SET_LEVEL_LINK(_node, _level, _ptr) ({ \
-    (_node)->level = (_level); \
+    (CACHE_NODE(_node))->level = (_level); \
     (_node)->ptr = (_ptr); \
-    *(_ptr) = (_node) - ctx->cache; \
+    *(_ptr) = CACHE_ID((_node) - ctx->cache); \
     })
+
+#define VERIFY_NODE(_node) ({ \
+    if ((_node)->childs[0] == ((_node) - ctx->cache) || \
+        (_node)->childs[1] == ((_node) - ctx->cache) || \
+        (_node)->childs[2] == ((_node) - ctx->cache) || \
+        (_node)->childs[3] == ((_node) - ctx->cache) || \
+        (_node)->childs[0] > ctx->size || \
+        (_node)->childs[1] > ctx->size || \
+        (_node)->childs[2] > ctx->size || \
+        (_node)->childs[3] > ctx->size \
+        ) { \
+        printf("LINE %d\n", __LINE__); \
+        abort(); \
+    } \
+    if (ctx->indexes[(_node)->index] != ((_node) - ctx->cache)) { \
+        printf("LINE %d   (ctx->indexes[(_node)->index] != ((_node) - ctx->cache)) \n", __LINE__); \
+        abort(); \
+    } \
+    if (!((_node)->ptr == NULL || *(_node)->ptr <= ctx->size)) { \
+        printf("LINE %d (!((_node)->ptr == NULL || *(_node)->ptr <= ctx->size)) \n", __LINE__); \
+        abort(); \
+    } \
+})
 
 // a soma d etodos os indexes
 // a soma de todos os estrutura->codigo
 static uint lookup(encode_context_s* const restrict ctx, const void* restrict str, uint len) {
 
-    u64 hash  = (u64)len;
-    u64 hash1 = (u64)len << 32;
-    u64 hash2 = (u64)len << 48;
+    u64 hash  = ctx->hash  + ((u64)len);
+    u64 hash1 = ctx->hash1 + ((u64)len << 24);
+    u64 hash2 = ctx->hash2 + ((u64)len << 48);
 
     while (len >= sizeof(u64)) {
         const u64 word = *(u64*)str; str += sizeof(u64);
-        hash  += word & 0xFFFFFFFFULL;
-        hash1 += word >> 32;
-        hash1 += hash;
-        hash2 += hash1 & 0xFFFFFFFFULL;
-        hash  += hash;
-        hash += len;
+        hash  += word;
+        hash1 += word  >> (word  & 0b11111U);
+        hash2 += hash1 >> (word  & 0b11111U);
+        hash  += word  >> (hash2 & 0b11111U);
+        hash  += len;
         len -= sizeof(u64);
     }
 
     while (len) {
-        const u64 chr = *(u8*)str++;
-        hash  += hash >> 32;
-        hash  += chr;
-        hash1 += hash  << (chr & 0b11111U);
-        hash2 += hash1 << (chr & 0b11111U);
-        hash1 += hash2 << (len & 0b11111U);
-        hash2 += hash1 << (len & 0b11111U);
-        hash2 += len--;
-        hash  += hash2;
+        const u64 word = *(u8*)str; str += sizeof(u8);
+        hash  += word;
+        hash1 += word  >> (word  & 0b11111U);
+        hash2 += hash1 >> (word  & 0b11111U);
+        hash  += word  >> (hash2 & 0b11111U);
+        hash  += len;
+        len -= sizeof(u8);
     }
 
     uint level = 0;
-    u32* ptr = &ctx->heads[hash1 & HEAD_MASK];
+    u32* ptr = &ctx->heads[hash1 &  ctx->headMask];
     encode_s* this;
 
     while FAZ(this, *ptr) {
+        VERIFY_NODE(this);
         if (this->hash  == hash  &&
             this->hash1 == hash1 &&
             this->hash2 == hash2) {
@@ -150,7 +229,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                     while (slot--) { encode_s* child;
                         if FAZ(child, this->childs[slot]) { encode_s* this;
                             u32* ptr = &child0->childs[slot];
-                            u64 hash = child->hash;
+                            const u64 hash = child->hash;
                             uint level = child->level;
                             // Vai até o fim
                             while FAZ(this, *ptr)
@@ -160,8 +239,21 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                     } break;
                 }
             }
-        } *(this->ptr = ptr) = this - ctx->cache;
+        }
+
+        VERIFY_NODE(this);
+
+        *(this->ptr = ptr) = this - ctx->cache;
     }
+#if 1
+    else {
+        // this->ptr == ptr
+        // ptr = este
+        // este->index
+    }
+#endif
+
+    VERIFY_NODE(this);
 
     this->hash  = hash;
     this->hash1 = hash1;
@@ -171,6 +263,10 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
     this->childs[1] = ctx->size;
     this->childs[2] = ctx->size;
     this->childs[3] = ctx->size;
+
+    VERIFY_NODE(this);
+
+    VERIFY_CTX(ctx);
 
     return CODE_NEW;
 }
@@ -182,14 +278,56 @@ static inline u64 rdtscp(void) {
     return ((u64)hi << 32) | lo;
 }
 
-static encode_context_s* encoder_new (const uint size) {
+static encode_context_s* encoder_new (const uint size, const uint headSize, u64 hash, u64 hash1, u64 hash2) {
 
-    encode_context_s_i* const ctx = malloc(sizeof(encode_context_s) + size*sizeof(encode_s) + size*sizeof(u32) + HEAD_SIZE*sizeof(u32*));
+    if (size <= 16)
+        return NULL;
+
+    // TODO: FIXME: ver se esse valor está correto aqui
+    if (size >= 0b11111111111111111111)
+        return NULL;
+
+    const uint headMask = headSize - 1;
+
+    switch (headMask) {
+        case 0b1U:
+        case 0b11U:
+        case 0b111U:
+        case 0b1111U:
+        case 0b11111U:
+        case 0b111111U:
+        case 0b1111111U:
+        case 0b11111111U:
+        case 0b111111111U:
+        case 0b1111111111U:
+        case 0b11111111111U:
+        case 0b111111111111U:
+        case 0b1111111111111U: // 8192
+        case 0b11111111111111U:
+        case 0b111111111111111U: // 32767
+        case 0b1111111111111111U:
+            break;
+        default:
+            return NULL;
+    }
+
+    hash  += rdtscp();
+    hash1 += hash;
+    hash2 += ~hash;
+
+    encode_context_s_i* const ctx = malloc(sizeof(encode_context_s) + size*sizeof(encode_s) + size*sizeof(u32) + headSize*sizeof(u32*));
+
+    if (ctx == NULL)
+        return NULL;
 
     ctx->pos = 0;
     ctx->size = size;
     ctx->indexes = (void*)(ctx->cache + size);
     ctx->heads = (void*)(ctx->indexes + size);
+    ctx->headMask = headMask;
+    ctx->hash = hash;
+    ctx->hash1 = hash1;
+    ctx->hash2 = hash2;
 
     uint count = 0;
 
@@ -215,81 +353,80 @@ static encode_context_s* encoder_new (const uint size) {
 
     do {
         ctx->heads[count] = size;
-    } while (++count != HEAD_SIZE);
+    } while (++count != headSize);
 
     return (encode_context_s*)ctx;
 }
 
 #define CACHE_SIZE 0xFFFF
 
+static void fill(encode_context_s* const ctx, uintll count) {
+
+    static u64 random1 = 0x77545b4578540574ULL; //rdtscp();
+
+    static u64 random[32] = {
+        0xa405f056054046e4ULL,
+        0x01d345f7893BaDEFULL,
+        0x480fdbff42ff0134ULL,
+        0x4aa4f544f0fa6405ULL,
+        0x4f0436a564015456ULL,
+        0x5f42a5a45da52d78ULL,
+        0x4a6faf3875405744ULL,
+        0x540f845645246544ULL,
+        0x14545b4578540574ULL,
+        0x456074745424a407ULL,
+        0x445604fa403af044ULL,
+        0x456f4587a3f54060ULL,
+        0xe0f40460735dedf5ULL,
+        0x0847f974623a4650ULL,
+        0x04f05d5ff4065f47ULL,
+        0x0054074050507007ULL,
+        0xa405f056054046e4ULL,
+        0x01d345f7893BaDEFULL,
+        0x480fdbff42ff0134ULL,
+        0x4aa4f544f0fa6405ULL,
+        0x4f0436a564015456ULL,
+        0x5f42a5a45da52d78ULL,
+        0x4a6faf3875405744ULL,
+        0x540f845645246544ULL,
+        0x14545b4578540574ULL,
+        0x456074745424a407ULL,
+        0x445604fa403af044ULL,
+        0x456f4587a3f54060ULL,
+        0xe0f40460735dedf5ULL,
+        0x0847f974623a4650ULL,
+        0x04f05d5ff4065f47ULL,
+        0x0054074050507007ULL,
+        };
+
+    while (count--) {
+        random[0] += random1;
+        random[1] += random1;
+        random[2] += random1;
+        random[3] += random1;
+        random[4] += random1;
+        random[5] += random1;
+        random[6] += random1;
+        random[7] += random1;
+        random[8] += random1;
+        random1 += random1 << (count   & 0b11111U);
+        random1 += count   << (random1 & 0b11111U);
+        lookup(ctx, (void*)random, 1 + (random1 & 0b111111U));
+    }
+}
+
 int main (void) {
 
-    encode_context_s* const ctx = encoder_new(CACHE_SIZE);
+    encode_context_s* const ctx = encoder_new(CACHE_SIZE+1, 8192, 0, 0, 0);
 
-    { uintll count = 0;
-        do {
-            char str[256];
-            sprintf(str, "%llu.%llu", count % 3000, count % 500); // (uintll)(rdtscp())
-            lookup(ctx, str, strlen(str));
-        } while (++count != (1000*CACHE_SIZE));
-    }
-
-    char* coisas[] = {
-
-         "A", "B", "C", "D", "E", "F", "000", "001", "0001", "0102", "00002",
-         "ewgwegwegweqwiowq iohf32,",
-         "ewgop ew goewugewiog ewi yewy r32 hdsjknkjlew 06.56",
-         "ewgwgwegwe",
-         "BANANA",
-          NULL };
-
-    { char** coisa = coisas;
-        while (*++coisa)
-            printf("COISA %s %u\n", *coisa, lookup(ctx, *coisa, strlen(*coisa)));
-        printf("\n");
-    }
-
-    { uintll count = 0;
-        do {
-            char str[256];
-            sprintf(str, "%llu.%llu", count % 3000, count % 500); // (uintll)(rdtscp())
-            lookup(ctx, str, strlen(str));
-        } while (++count != (100*CACHE_SIZE));
-    }
-
-    { char** coisa = coisas;
-        while (*++coisa)
-            printf("COISA %s %u\n", *coisa, lookup(ctx, *coisa, strlen(*coisa)));
-        printf("\n");
-    }
-
-    { uintll count = 0;
-        do {
-            char str[256];
-            sprintf(str, "%llu.%llu", count % 3000, count % 500); // (uintll)(rdtscp())
-            lookup(ctx, str, strlen(str));
-        } while (++count != (4000));
-    }
-
-    { char** coisa = coisas;
-        while (*++coisa)
-            printf("COISA %s %u\n", *coisa, lookup(ctx, *coisa, strlen(*coisa)));
-        printf("\n");
-    }
-
-    { uintll count = 0;
-        do {
-            char str[256];
-            sprintf(str, "%llu.%llu", count % 3000, count % 500); // (uintll)(rdtscp())
-            lookup(ctx, str, strlen(str));
-        } while (++count != (8000));
-    }
-
-    { char** coisa = coisas;
-        while (*++coisa)
-            printf("COISA %s %u\n", *coisa, lookup(ctx, *coisa, strlen(*coisa)));
-        printf("\n");
-    }
+    VERIFY_CTX(ctx); fill(ctx, 1000*CACHE_SIZE);
+    VERIFY_CTX(ctx); fill(ctx, 1000*CACHE_SIZE);
+    VERIFY_CTX(ctx); fill(ctx, 3*CACHE_SIZE);
+    VERIFY_CTX(ctx); fill(ctx, 2*CACHE_SIZE);
+    VERIFY_CTX(ctx); fill(ctx, 2*CACHE_SIZE);
+    VERIFY_CTX(ctx); fill(ctx, CACHE_SIZE);
+    VERIFY_CTX(ctx); fill(ctx, CACHE_SIZE);
+    VERIFY_CTX(ctx);
 
     return 0;
 }
