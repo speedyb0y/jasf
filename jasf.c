@@ -171,6 +171,11 @@ static inline encode_s* leaf_node(encode_context_s* const restrict ctx, encode_s
     return node;
 }
 
+static inline void _ASSERT(int condition) {
+    if (!condition)
+        abort();
+}
+
 // a soma d etodos os indexes
 // a soma de todos os estrutura->codigo
 static uint lookup(encode_context_s* const restrict ctx, const void* restrict str, uint len) {
@@ -214,17 +219,17 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
             encode_s* const this = cache + ctx->indexes[ctx->pos++ % ctx->size]; // Sobrescreve o mais antigo
             encode_s* const leaf = leaf_node(ctx, this); // Encontra um leaf dele para substituir ele
 
-            if (leaf->childs[0] != CACHE_INVALID) abort();
-            if (leaf->childs[1] != CACHE_INVALID) abort();
-            if (leaf->childs[2] != CACHE_INVALID) abort();
-            if (leaf->childs[3] != CACHE_INVALID) abort();
+            _ASSERT (leaf->childs[0] == CACHE_INVALID);
+            _ASSERT (leaf->childs[1] == CACHE_INVALID);
+            _ASSERT (leaf->childs[2] == CACHE_INVALID);
+            _ASSERT (leaf->childs[3] == CACHE_INVALID);
 
             if (this->ptr == NULL) { // Está usando um que ainda não foi usado
 
-               if (this->childs[0] != CACHE_INVALID) abort();
-               if (this->childs[1] != CACHE_INVALID) abort();
-               if (this->childs[2] != CACHE_INVALID) abort();
-               if (this->childs[3] != CACHE_INVALID) abort();
+               _ASSERT (this->childs[0] == CACHE_INVALID);
+               _ASSERT (this->childs[1] == CACHE_INVALID);
+               _ASSERT (this->childs[2] == CACHE_INVALID);
+               _ASSERT (this->childs[3] == CACHE_INVALID);
 
                 this->ptr = ptr;
                *this->ptr = this - cache;
@@ -233,18 +238,20 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                 // this->ptr mantém
                 // ptr aponta para o slot vazio que seguiu
                 // Os demais slots podem conter outras coisas
-               if (&this->childs[0] != ptr &&
-                   &this->childs[1] != ptr &&
-                   &this->childs[2] != ptr &&
-                   &this->childs[3] != ptr) { printf("%d\n", __LINE__); abort(); }
+                _ASSERT (
+                   &this->childs[0] == ptr ||
+                   &this->childs[1] == ptr ||
+                   &this->childs[2] == ptr ||
+                   &this->childs[3] == ptr
+                   );
 
                 *ptr = CACHE_INVALID;
             } elif (this == leaf) { // Escolheu um que não tem childs; não precisa mover nada
 
-               if (this->childs[0] != CACHE_INVALID) abort();
-               if (this->childs[1] != CACHE_INVALID) abort();
-               if (this->childs[2] != CACHE_INVALID) abort();
-               if (this->childs[3] != CACHE_INVALID) abort();
+               _ASSERT (this->childs[0] == CACHE_INVALID);
+               _ASSERT (this->childs[1] == CACHE_INVALID);
+               _ASSERT (this->childs[2] == CACHE_INVALID);
+               _ASSERT (this->childs[3] == CACHE_INVALID);
 
                *this->ptr = CACHE_INVALID;
                 this->ptr = ptr;
@@ -274,17 +281,17 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
             this->hash1 = hash1;
             this->hash2 = hash2;
 
-            if (*this->ptr != (this - cache)) abort();
+            _ASSERT (*this->ptr == (this - cache));
 
-            if (this->ptr == &this->childs[0]) abort();
-            if (this->ptr == &this->childs[1]) abort();
-            if (this->ptr == &this->childs[2]) abort();
-            if (this->ptr == &this->childs[3]) abort();
+            _ASSERT (this->ptr != &this->childs[0]);
+            _ASSERT (this->ptr != &this->childs[1]);
+            _ASSERT (this->ptr != &this->childs[2]);
+            _ASSERT (this->ptr != &this->childs[3]);
 
-            if (*this->ptr == this->childs[0]) abort();
-            if (*this->ptr == this->childs[1]) abort();
-            if (*this->ptr == this->childs[2]) abort();
-            if (*this->ptr == this->childs[3]) abort();
+            _ASSERT (*this->ptr != this->childs[0]);
+            _ASSERT (*this->ptr != this->childs[1]);
+            _ASSERT (*this->ptr != this->childs[2]);
+            _ASSERT (*this->ptr != this->childs[3]);
 
             return CODE_NEW;
         }
