@@ -264,6 +264,11 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                *leaf->ptr = leaf - cache; // this->ptr sendo sobrescrito aqui
                 // Passa todos os demais para o leaf
                 // Os que realmente existirem, vai neles e muda o ptr deles
+                _ASSERT (leaf->childs[0] == CACHE_INVALID);
+                _ASSERT (leaf->childs[1] == CACHE_INVALID);
+                _ASSERT (leaf->childs[2] == CACHE_INVALID);
+                _ASSERT (leaf->childs[3] == CACHE_INVALID);
+
                 if ((leaf->childs[0] = this->childs[0]) != CACHE_INVALID) (cache + leaf->childs[0])->ptr = &leaf->childs[0];
                 if ((leaf->childs[1] = this->childs[1]) != CACHE_INVALID) (cache + leaf->childs[1])->ptr = &leaf->childs[1];
                 if ((leaf->childs[2] = this->childs[2]) != CACHE_INVALID) (cache + leaf->childs[2])->ptr = &leaf->childs[2];
@@ -277,9 +282,17 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                 this->childs[3] = CACHE_INVALID;
             }
 
-            this->hash  = hash;
-            this->hash1 = hash1;
-            this->hash2 = hash2;
+            _ASSERT ((this - cache) < ctx->size);
+
+            _ASSERT (this->childs[0] == CACHE_INVALID || this->childs[0] < ctx->size);
+            _ASSERT (this->childs[1] == CACHE_INVALID || this->childs[1] < ctx->size);
+            _ASSERT (this->childs[2] == CACHE_INVALID || this->childs[2] < ctx->size);
+            _ASSERT (this->childs[3] == CACHE_INVALID || this->childs[3] < ctx->size);
+
+            _ASSERT (this->childs[0] == CACHE_INVALID || *(cache + this->childs[0])->ptr == this->childs[0]);
+            _ASSERT (this->childs[1] == CACHE_INVALID || *(cache + this->childs[1])->ptr == this->childs[1]);
+            _ASSERT (this->childs[2] == CACHE_INVALID || *(cache + this->childs[2])->ptr == this->childs[2]);
+            _ASSERT (this->childs[3] == CACHE_INVALID || *(cache + this->childs[3])->ptr == this->childs[3]);
 
             _ASSERT (*this->ptr == (this - cache));
 
@@ -292,6 +305,10 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
             _ASSERT (*this->ptr != this->childs[1]);
             _ASSERT (*this->ptr != this->childs[2]);
             _ASSERT (*this->ptr != this->childs[3]);
+
+            this->hash  = hash;
+            this->hash1 = hash1;
+            this->hash2 = hash2;
 
             return CODE_NEW;
         }
