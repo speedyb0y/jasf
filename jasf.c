@@ -171,9 +171,9 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
     while (len >= sizeof(u64)) {
         const u64 word = *(u64*)str; str += sizeof(u64);
         hash  += word;
-        hash1 += word  >> (word  & 0b11111U);
-        hash2 += hash1 >> (word  & 0b11111U);
-        hash  += word  >> (hash2 & 0b11111U);
+        hash1 += word  << (word  & 0b11111U);
+        hash2 += hash1 << (word  & 0b11111U);
+        hash  += word  << (hash2 & 0b11111U);
         hash  += len;
         len -= sizeof(u64);
     }
@@ -181,9 +181,9 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
     while (len) {
         const u64 word = *(u8*)str; str += sizeof(u8);
         hash  += word;
-        hash1 += word  >> (word  & 0b11111U);
-        hash2 += hash1 >> (word  & 0b11111U);
-        hash  += word  >> (hash2 & 0b11111U);
+        hash1 += word  << (word  & 0b11111U);
+        hash2 += hash1 << (word  & 0b11111U);
+        hash  += word  << (hash2 & 0b11111U);
         hash  += len;
         len -= sizeof(u8);
     }
@@ -358,8 +358,6 @@ static encode_context_s* encoder_new (const uint size, const uint headSize, u64 
     return (encode_context_s*)ctx;
 }
 
-#define CACHE_SIZE 0xFFFF
-
 static void fill(encode_context_s* const ctx, uintll count) {
 
     static u64 random1 = 0x77545b4578540574ULL; //rdtscp();
@@ -417,7 +415,9 @@ static void fill(encode_context_s* const ctx, uintll count) {
 
 int main (void) {
 
-    encode_context_s* const ctx = encoder_new(CACHE_SIZE+1, 8192, 0, 0, 0);
+#define CACHE_SIZE 0xFFFF
+
+    encode_context_s* const ctx = encoder_new(CACHE_SIZE, 64, 0, 0, 0);
 
     VERIFY_CTX(ctx); fill(ctx, 1000*CACHE_SIZE);
     VERIFY_CTX(ctx); fill(ctx, 1000*CACHE_SIZE);
