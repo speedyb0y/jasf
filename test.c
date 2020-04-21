@@ -21,12 +21,19 @@ typedef long long           intll;
 typedef unsigned            uint;
 typedef unsigned long long  uintll;
 
+#if 0
+static inline u64 rdtscp(void) {
+    uint lo;
+    uint hi;
+    __asm__ __volatile__ ("rdtscp" : "=a" (lo), "=d" (hi));
+    return ((u64)hi << 32) | lo;
+}
+#else
+#define rdtscp() ((u64)0)
+#endif
+
 typedef struct encode_s encode_s;
 typedef struct decode_s decode_s;
-
-#define CHILDS_SIZE 4
-#define CHILDS_MASK 0b11U
-#define CHILDS_BITS 2
 
 // É o valor máximo que cabe em 1 byte, nos RBITS
 // é (2^NUMERO_DE_BITS - 1)
@@ -41,12 +48,14 @@ typedef struct decode_s decode_s;
 #define PTR_LOAD(ptr)  ((void*)cache + (ptr))
 #define PTR_STORE(ptr, value)  ((ptr) = (void*)cache + (value))
 
+#define ENCODE_CHILDS_SIZE 7
+
 struct encode_s {
     u64 hash;
     u64 hash1;
     u64 hash2;
     u32* ptr; // TODO: FIXME: transformar em u32
-    u32 childs[CHILDS_SIZE];
+    u32 childs[ENCODE_CHILDS_SIZE];
     u32 index;
 };
 
@@ -89,7 +98,7 @@ struct decode_s {
 #endif
 
 static inline uint leaf_node(const encode_s* const restrict cache, uint node) {
-    uint slot = CHILDS_SIZE - 1;
+    uint slot = ENCODE_CHILDS_SIZE - 1;
     do { const uint id = cache[node].childs[slot];
         if (id != CACHE_SIZE_INVALID)
             return leaf_node(cache, id);
@@ -127,7 +136,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
 
     encode_s* const cache = ctx->cache;
 
-    uint level = 0;
+    u64 level = hash;
 
     u32* ptr = ctx->heads + (hash1 % ctx->headSize);
 
@@ -251,23 +260,24 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
             return code - 1;
         }
 
+        // As coisas só podem ser movidas para cima, pois não depende dos outros hashes.
+        // Se colocou um node aqui, é porque o hash dele aceita este nível atual ou qualquer outro acima.
+        // TODO: FIXME: mas isso só vale até certo nível?
+        ptr = &this->childs[level % ENCODE_CHILDS_SIZE];
+        level /= ENCODE_CHILDS_SIZE;
+        // TODO: FIXME: isso aqui vai nos salvar?
+        level += (!level)*hash;
         // CHILDS_BITS tem que ser divisor de 64
-        ptr = &this->childs[(hash >> (level % 64)) & CHILDS_MASK];
+        //ptr = &this->childs[(hash >> (level % 64)) & CHILDS_MASK];
         // TODO: FIXME: vai dar certo isso?
-        // acho que sim, se as coisas só pdem ser movidas para cima, pois não depende dos outros hashes, só depende do hash desse e do nível
         // se só movemos para cima, então está colocando ele num lugar por onde ele já passou
-        level += CHILDS_BITS;
+        //level += CHILDS_BITS;
         //tuple((x%64) for x in range(0, 98, 2))
         //(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32)
     }
 }
 
-static inline u64 rdtscp(void) {
-    uint lo;
-    uint hi;
-    __asm__ __volatile__ ("rdtscp" : "=a" (lo), "=d" (hi));
-    return ((u64)hi << 32) | lo;
-}
+#define ENCODE_BUFF_SIZE(size, headSize) (sizeof(encode_context_s) + (size)*(sizeof(encode_s) + sizeof(u32)) + (headSize)*sizeof(u32))
 
 static encode_context_s* encoder_new (const uint size, const uint headSize, u64 hash, u64 hash1, u64 hash2) {
 
@@ -288,7 +298,7 @@ static encode_context_s* encoder_new (const uint size, const uint headSize, u64 
     hash1 += hash;
     hash2 += hash1 >> 32;
 
-    encode_context_s_i* const ctx = malloc(sizeof(encode_context_s) + size*sizeof(encode_s) + size*sizeof(u32) + headSize*sizeof(u32));
+    encode_context_s_i* const ctx = malloc(ENCODE_BUFF_SIZE(size, headSize));
 
     if (ctx == NULL)
         return NULL;
@@ -316,6 +326,9 @@ static encode_context_s* encoder_new (const uint size, const uint headSize, u64 
         this->childs[1] = CACHE_SIZE_INVALID;
         this->childs[2] = CACHE_SIZE_INVALID;
         this->childs[3] = CACHE_SIZE_INVALID;
+        this->childs[4] = CACHE_SIZE_INVALID;
+        this->childs[5] = CACHE_SIZE_INVALID;
+        this->childs[6] = CACHE_SIZE_INVALID;
         this->ptr = NULL;
 
         ctx->indexes[count] = count;
@@ -403,7 +416,7 @@ int main (void) {
         0xe0f40460735dedf5ULL, 0x0847f974623a4650ULL, 0x04f05d5ff4065f47ULL, 0x0054074050507007ULL, 0x445604fa403af044ULL,
         };
 
-    static uint cacheSizes[] = {
+    static const uint cacheSizes[] = {
          0xFFFF,   64,
          0xFFFF,  512,
          0xFFFF, 4096,
@@ -414,7 +427,7 @@ int main (void) {
         0xFFFFF, 4096,
         0xFFFFF, 8192,
         0
-    };
+        };
 
     uint x = 0;
 
@@ -422,7 +435,7 @@ int main (void) {
 
         uint headSize = cacheSizes[x++*2 + 1];
 
-        uintll tests[] = { 1, 1, 2, 2, 100, 200, 300, 400, 500, 1000, 500, 1, 1, 15*cacheSize, cacheSize, 2*cacheSize, 3*cacheSize, 0 };
+        uintll tests[] = { 1, 1, 2, 2, 100, 200, 300, 400, 500, 1000, 500, 1, 1, 15*cacheSize, 50*cacheSize, 50*cacheSize, 50*cacheSize, 0 };
         uint test = 0;
         uintll count;
 
@@ -436,7 +449,7 @@ int main (void) {
 
             random1 += rdtscp();
 
-            printf("CACHE SIZE %7u HEAD SIZE %5u TEST %2u COUNT %12llu SEED 0x%016llX ...", cacheSize, headSize, test, count, (uintll)random1);
+            printf("CACHE SIZE %7u HEAD SIZE %5u BUFF %8llu TEST %2u COUNT %12llu SEED 0x%016llX ...", cacheSize, headSize, (uintll)ENCODE_BUFF_SIZE(cacheSize, headSize), test, count, (uintll)random1);
 
             fflush(stdout);
 
@@ -446,8 +459,8 @@ int main (void) {
             uintll levels = 0;
             uintll entries = 0;
             uintll sizeEncoded = 0;
+            uintll sizeReal = 0;
 
-            uint sizeReal = 0;
             uintll valuesN = count;
 
             while (count--) {
@@ -513,22 +526,25 @@ int main (void) {
                 ASSERT ( this->ptr == NULL || *this->ptr == count );
 
                 // Seu ptr não pode apontar para um próprio slot de child
-                ASSERT ( (void*)this->ptr < (void*)this || (void*)this->ptr > ((void*)this + sizeof(*this)) );
+                ASSERT ( (void*)this->ptr < (void*)this || (void*)this->ptr >= ((void*)this + sizeof(*this)) );
 
                 // O valor no slot de seu child não pode ser si mesmo
                 ASSERT (
                     count != this->childs[0] &&
                     count != this->childs[1] &&
                     count != this->childs[2] &&
-                    count != this->childs[3]
+                    count != this->childs[3] &&
+                    count != this->childs[4]
                     );
 
                 //
-                if ((this->childs[0] > ctx->size && this->childs[0] != CACHE_SIZE_INVALID) ||
+                ASSERT (!(
+                    (this->childs[0] > ctx->size && this->childs[0] != CACHE_SIZE_INVALID) ||
                     (this->childs[1] > ctx->size && this->childs[1] != CACHE_SIZE_INVALID) ||
                     (this->childs[2] > ctx->size && this->childs[2] != CACHE_SIZE_INVALID) ||
-                    (this->childs[3] > ctx->size && this->childs[3] != CACHE_SIZE_INVALID)
-                    ) abort();
+                    (this->childs[3] > ctx->size && this->childs[3] != CACHE_SIZE_INVALID) ||
+                    (this->childs[4] > ctx->size && this->childs[4] != CACHE_SIZE_INVALID)
+                    ));
             }
 
             // TODO: FIXME: All heads are 0 or its target points to it in it s ptr
@@ -548,24 +564,26 @@ int main (void) {
 
                 if (this->ptr) {
 
-                    u64 hash = this->hash;
-                    uint level = 0;
+                    u64 level = this->hash;
                     uint id = ctx->heads[this->hash1 % ctx->headSize];
 
                     while (id != count) {
                         ASSERT (id != CACHE_SIZE_INVALID);
-                        id = ctx->cache[id].childs[(hash >> (level % 64)) & CHILDS_MASK];
-                        level += CHILDS_BITS;
+                        levels++;
+                        id = ctx->cache[id].childs[level % ENCODE_CHILDS_SIZE];
+                        level /= ENCODE_CHILDS_SIZE;
+                        level += (!level)*this->hash;
                     }
 
-                    levels += level;
                     entries++;
+
                 } else {
                     ASSERT (this->ptr == NULL);
                     ASSERT (this->childs[0] == CACHE_SIZE_INVALID);
                     ASSERT (this->childs[1] == CACHE_SIZE_INVALID);
                     ASSERT (this->childs[2] == CACHE_SIZE_INVALID);
                     ASSERT (this->childs[3] == CACHE_SIZE_INVALID);
+                    ASSERT (this->childs[4] == CACHE_SIZE_INVALID);
                     //ASSERT (this->index == count);
                     ASSERT (this->hash == 0);
                     ASSERT (this->hash1 == 0);
@@ -575,7 +593,9 @@ int main (void) {
 
             // TODO: FIXME: se não é o mesmo, não pode ter hash igual
 
-            printf(" NEWS %10llu CACHEDS %10llu REPEATEDS %.2f %10llu LEVELS %10llu LEVEL AVG %3llu CODE SIZE %.2f\n", news, cacheds, (double)repeateds/valuesN, repeateds, levels, levels/entries, (double)sizeEncoded/(double)sizeReal);
+            printf(" NEWS (%%) %3u CACHEDS (%%) %3u REPEATEDS (%%) %3u LEVEL AVG %3llu SIZE (%%) %3u\n",
+                (uint)((news*100)/valuesN), (uint)((cacheds*100)/valuesN), (uint)((repeateds*100)/valuesN), levels/entries, (uint)((sizeEncoded*100)/sizeReal)
+                );
 
             free(ctx);
         }
