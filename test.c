@@ -48,7 +48,7 @@ typedef struct decode_s decode_s;
 #define PTR_LOAD(ptr)  ((void*)cache + (ptr))
 #define PTR_STORE(ptr, value)  ((ptr) = (void*)cache + (value))
 
-#define ENCODE_CHILDS_SIZE 7
+#define ENCODE_CHILDS_SIZE 5
 
 struct encode_s {
     u64 hash;
@@ -59,6 +59,7 @@ struct encode_s {
     u32 index;
 };
 
+// Used to initialize
 typedef struct encode_context_s_i {
     uint cur;
     uint size;
@@ -66,11 +67,12 @@ typedef struct encode_context_s_i {
     u64 hash;
     u64 hash1;
     u64 hash2;
-    u32* heads;
     u32* indexes;
+    u32* heads;
     encode_s cache[];
 } encode_context_s_i;
 
+// Used everywhere to protect the members
 typedef struct encode_context_s {
     uint cur;
     const uint size;
@@ -78,8 +80,8 @@ typedef struct encode_context_s {
     const u64 hash;
     const u64 hash1;
     const u64 hash2;
-    u32* const heads;
     u32* const indexes;
+    u32* const heads;
     encode_s cache[];
 } encode_context_s;
 
@@ -120,7 +122,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
         hash1 += hash  >> 32;
         hash2 += hash1 >> 32;
         hash  += hash2 >> 32;
-        hash  ^= len;
+        hash  += len;
         len -= sizeof(u64);
     }
 
@@ -130,9 +132,12 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
         hash1 += hash  >> 32;
         hash2 += hash1 >> 32;
         hash  += hash2 >> 32;
-        hash  ^= len;
+        hash  += len;
         len -= sizeof(u8);
     }
+
+    hash1 += hash2;
+    hash += hash >> 32;
 
     encode_s* const cache = ctx->cache;
 
@@ -326,9 +331,13 @@ static encode_context_s* encoder_new (const uint size, const uint headSize, u64 
         this->childs[1] = CACHE_SIZE_INVALID;
         this->childs[2] = CACHE_SIZE_INVALID;
         this->childs[3] = CACHE_SIZE_INVALID;
+#if ENCODE_CHILDS_SIZE > 4
         this->childs[4] = CACHE_SIZE_INVALID;
+#if ENCODE_CHILDS_SIZE > 5
         this->childs[5] = CACHE_SIZE_INVALID;
         this->childs[6] = CACHE_SIZE_INVALID;
+#endif
+#endif
         this->ptr = NULL;
 
         ctx->indexes[count] = count;
