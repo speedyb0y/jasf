@@ -48,6 +48,7 @@ typedef struct decode_s decode_s;
 #define PTR_LOAD(ptr)  ((void*)cache + (ptr))
 #define PTR_STORE(ptr, value)  ((ptr) = (void*)cache + (value))
 
+// TODO: FIXME: DYNAMIC CHILDS SIZE
 #define ENCODE_CHILDS_SIZE 5
 
 struct encode_s {
@@ -118,26 +119,27 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
 
     while (len >= sizeof(u64)) {
         const u64 word = *(u64*)str; str += sizeof(u64);
-        hash  += word;
-        hash1 += hash  >> 32;
-        hash2 += hash1 >> 32;
-        hash  += hash2 >> 32;
-        hash  += len;
+        hash   += word;
+        hash1  += hash;
+        hash2  += hash1;
+        hash   += hash >> 32;
+        hash   += hash1;
+        hash1  += hash1 >> 32;
+        hash1  += hash2;
         len -= sizeof(u64);
     }
 
     while (len) {
         const u64 word = *(u8*)str; str += sizeof(u8);
-        hash  += word;
-        hash1 += hash  >> 32;
-        hash2 += hash1 >> 32;
-        hash  += hash2 >> 32;
-        hash  += len;
+        hash   += word;
+        hash1  += hash;
+        hash2  += hash1;
+        hash   += hash >> 32;
+        hash   += hash1;
+        hash1  += hash1 >> 32;
+        hash1  += hash2;
         len -= sizeof(u8);
     }
-
-    hash1 += hash2;
-    hash += hash >> 32;
 
     encode_s* const cache = ctx->cache;
 
@@ -224,14 +226,12 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
             const uint thisIndex = this->index;
             const uint curIndex = ctx->cur;
 
-            //
             // 0  1  2  3  4  5  6  7  8  9   -> SIZE 10
             //      LAST        NEW
             // To encode
             //      CODE = LAST + (NEW  > LAST)*SIZE - NEW
             // To decode
             //      NEW  = LAST + (CODE > LAST)*SIZE - CODE
-            //
             uint code;
             // Transforma o cur no último
             if ((code = curIndex - 1) >= CACHE_SIZE_INVALID)
@@ -270,8 +270,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
         // TODO: FIXME: mas isso só vale até certo nível?
         ptr = &this->childs[level % ENCODE_CHILDS_SIZE];
         level /= ENCODE_CHILDS_SIZE;
-        // TODO: FIXME: isso aqui vai nos salvar?
-        level += (!level)*hash;
+        level += (!level)*hash; // TODO: FIXME: isso aqui vai nos salvar?
         // CHILDS_BITS tem que ser divisor de 64
         //ptr = &this->childs[(hash >> (level % 64)) & CHILDS_MASK];
         // TODO: FIXME: vai dar certo isso?
