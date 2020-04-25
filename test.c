@@ -38,12 +38,8 @@ static inline u64 rdtscp(void) {
 #define CODE_CACHED_RBITS_MAX 15
 
 #define CACHE_SIZE 0xFFFF
-
-#define HEADS_SIZE 0x10000U
-#define HEADS_MASK 0xFFFFU
-
+#define HEADS_SIZE 65536
 #define HASH2 0x32434323ULL // TODO: // FIXME: compile-time random
-
 #define ENCODE_CHILDS_SIZE 3
 
 typedef struct jasf_encode_s {
@@ -57,9 +53,9 @@ typedef struct jasf_encode_s {
 typedef struct jasf_encode_context_s {
     uint cur;
     uint lenMax;
-    u16 heads[HEADS_SIZE];
     u16 indexes[CACHE_SIZE];
     jasf_encode_s cache[CACHE_SIZE];
+    u16 heads[HEADS_SIZE];
 } jasf_encode_context_s;
 
 typedef struct jasf_decode_s {
@@ -125,7 +121,7 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
 
     u64 level = hash;
 
-    u16* ptr = &ctx->heads[hash2 & HEADS_MASK]; // USAR O HASH2 !!!!!!
+    u16* ptr = &ctx->heads[hash2 % HEADS_SIZE]; // USAR O HASH2 !!!!!!
 
     loop {
         const uint thisID = *ptr;
@@ -504,7 +500,7 @@ int main (void) {
             if (this->ptr) {
 
                 u64 level = this->hash;
-                uint id = ctx->heads[this->hash1 & HEADS_MASK];
+                uint id = ctx->heads[this->hash1 % HEADS_SIZE];
 
                 while (id != count) {
                     ASSERT (id != CACHE_SIZE);
