@@ -39,8 +39,8 @@ static inline u64 rdtscp(void) {
 
 #define CACHE_SIZE 0xFFFF
 
-#define HEADS_SIZE 8192
-#define HEADS_MASK 0x1FFFU
+#define HEADS_SIZE 0x10000U
+#define HEADS_MASK 0xFFFFU
 
 #define PTR_OF(cached) ((void*)(cached) - (void*)cache)
 #define PTR_LOAD(ptr)  ((void*)cache + (ptr))
@@ -51,7 +51,9 @@ static inline u64 rdtscp(void) {
 typedef struct jasf_encode_s {
     u64 hash;
     u64 hash1;
-    u64 hash2;
+#if 1
+    u16 hash2;
+#endif
     u16* ptr; // TODO: FIXME: transformar em i32, relativo a ele mesmo
     u16 index;
     u16 childs[ENCODE_CHILDS_SIZE];
@@ -90,7 +92,7 @@ static inline uint jasf_encode_lookup_leaf_node(const jasf_encode_s* const restr
 
 static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const void* restrict str, uint len) {
 
-    u64 hash  = (u64)len;
+    u64 hash  = (u64)ctx;
     u64 hash1 = (u64)len;
     u64 hash2 = (u64)len;
 
@@ -118,11 +120,17 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
         len -= sizeof(u8);
     }
 
+    hash2 += hash2 >> 16;
+    hash2 += hash2 >> 16;
+    hash2 += hash2 >> 16;
+
+    hash1 = hash2; //  para teste
+
     jasf_encode_s* const cache = ctx->cache;
 
     u64 level = hash;
 
-    u16* ptr = &ctx->heads[hash1 & HEADS_MASK];
+    u16* ptr = &ctx->heads[hash2 & HEADS_MASK]; // USAR O HASH2 !!!!!!
 
     loop {
         const uint thisID = *ptr;
@@ -146,7 +154,6 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
 
                 this->hash  = leaf->hash;
                 this->hash1 = leaf->hash1;
-                this->hash2 = leaf->hash2;
 
                 const uint leafIndex = leaf->index;
                 const uint thisID = this->index;
@@ -169,7 +176,6 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
 
                 this->hash  = leaf->hash;
                 this->hash1 = leaf->hash1;
-                this->hash2 = leaf->hash2;
 
                 const uint leafIndex = leaf->index;
                 const uint index = this->index;
@@ -188,16 +194,13 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
 
             this->hash  = hash;
             this->hash1 = hash1;
-            this->hash2 = hash2;
 
             return ENCODE_NEW;
         }
 
         jasf_encode_s* const this = cache + thisID;
 
-        if (this->hash  == hash  &&
-            this->hash1 == hash1 &&
-            this->hash2 == hash2) {
+        if (this->hash == hash && this->hash1 == hash1) {
             /* Encontrou */
 
             const uint thisIndex = this->index;
@@ -245,7 +248,9 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
         ptr = &this->childs[level % ENCODE_CHILDS_SIZE];
 
         level /= ENCODE_CHILDS_SIZE;
-        level += (!level)*hash; // TODO: FIXME: isso aqui vai nos salvar?
+#if 0 // desnecessário pois dificilmente teremos tantos collisions
+        level += (!level)*hash;
+#endif
     }
 }
 
@@ -267,7 +272,6 @@ static jasf_encode_context_s* jasf_encode_new (const uint lenMax) {
 
         this->hash  = 0;
         this->hash1 = 0;
-        this->hash2 = 0;
         this->index = count;
         this->childs[0] = CACHE_SIZE;
         this->childs[1] = CACHE_SIZE;
@@ -512,7 +516,9 @@ int main (void) {
                     levels++;
                     id = ctx->cache[id].childs[level % ENCODE_CHILDS_SIZE];
                     level /= ENCODE_CHILDS_SIZE;
+#if 0
                     level += (!level)*this->hash;
+#endif
                 }
 
                 entries++;
@@ -520,7 +526,6 @@ int main (void) {
             } else {
                 ASSERT (this->hash == 0);
                 ASSERT (this->hash1 == 0);
-                ASSERT (this->hash2 == 0);
                 ASSERT (this->ptr == NULL);
                 ASSERT (this->childs[0] == CACHE_SIZE);
                 ASSERT (this->childs[1] == CACHE_SIZE);
