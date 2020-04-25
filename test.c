@@ -21,7 +21,7 @@ typedef long long           intll;
 typedef unsigned            uint;
 typedef unsigned long long  uintll;
 
-#if 0
+#if 1
 static inline u64 rdtscp(void) {
     uint lo;
     uint hi;
@@ -32,63 +32,42 @@ static inline u64 rdtscp(void) {
 #define rdtscp() ((u64)0)
 #endif
 
-typedef struct encode_s encode_s;
-typedef struct decode_s decode_s;
-
 // É o valor máximo que cabe em 1 byte, nos RBITS
 // é (2^NUMERO_DE_BITS - 1)
 // 0bCCCC 1111
 #define CODE_CACHED_RBITS_MAX 15
 
-#define CACHE_SIZE_MIN  CODE_CACHED_RBITS_MAX
-#define CACHE_SIZE_MAX      0xFFFFFU
-#define CACHE_SIZE_INVALID 0x100000U
+#define CACHE_SIZE 0xFFFF
+
+#define HEADS_SIZE 8192
+#define HEADS_MASK 0x1FFFU
 
 #define PTR_OF(cached) ((void*)(cached) - (void*)cache)
 #define PTR_LOAD(ptr)  ((void*)cache + (ptr))
 #define PTR_STORE(ptr, value)  ((ptr) = (void*)cache + (value))
 
-// TODO: FIXME: DYNAMIC CHILDS SIZE
-#define ENCODE_CHILDS_SIZE 5
+#define ENCODE_CHILDS_SIZE 3
 
-struct encode_s {
+typedef struct jasf_encode_s {
     u64 hash;
     u64 hash1;
     u64 hash2;
-    u32* ptr; // TODO: FIXME: transformar em u32
-    u32 childs[ENCODE_CHILDS_SIZE];
-    u32 index;
-};
+    u16* ptr; // TODO: FIXME: transformar em i32, relativo a ele mesmo
+    u16 index;
+    u16 childs[ENCODE_CHILDS_SIZE];
+} jasf_encode_s;
 
-// Used to initialize
-typedef struct encode_context_s_i {
+typedef struct jasf_encode_context_s {
     uint cur;
-    uint size;
-    uint headSize;
-    u64 hash;
-    u64 hash1;
-    u64 hash2;
-    u32* indexes;
-    u32* heads;
-    encode_s cache[];
-} encode_context_s_i;
+    uint lenMax;
+    u16 heads[HEADS_SIZE];
+    u16 indexes[CACHE_SIZE];
+    jasf_encode_s cache[CACHE_SIZE];
+} jasf_encode_context_s;
 
-// Used everywhere to protect the members
-typedef struct encode_context_s {
-    uint cur;
-    const uint size;
-    const uint headSize;
-    const u64 hash;
-    const u64 hash1;
-    const u64 hash2;
-    u32* const indexes;
-    u32* const heads;
-    encode_s cache[];
-} encode_context_s;
-
-struct decode_s {
+typedef struct jasf_decode_s {
     u16 type;
-};
+} jasf_decode_s;
 
 #define ABSDIFF(a, b)  ((a) >= (b)) ? ((a) - (b)) : ((b) - (a))
 
@@ -100,22 +79,20 @@ struct decode_s {
 #define ASSERT(condition) ({ if (!(condition)) { write(STDERR_FILENO, "\nASSERT FAILED: " #condition "\n", sizeof("\nASSERT FAILED: " #condition "\n")); abort(); } })
 #endif
 
-static inline uint leaf_node(const encode_s* const restrict cache, uint node) {
+static inline uint jasf_encode_lookup_leaf_node(const jasf_encode_s* const restrict cache, const uint node) {
     uint slot = ENCODE_CHILDS_SIZE - 1;
     do { const uint id = cache[node].childs[slot];
-        if (id != CACHE_SIZE_INVALID)
-            return leaf_node(cache, id);
+        if (id != CACHE_SIZE)
+            return jasf_encode_lookup_leaf_node(cache, id);
     } while (slot--);
     return node;
 }
 
-// a soma d etodos os indexes
-// a soma de todos os estrutura->codigo
-static uint lookup(encode_context_s* const restrict ctx, const void* restrict str, uint len) {
+static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const void* restrict str, uint len) {
 
-    u64 hash  = ctx->hash  + ((u64)len << (ctx->hash  & 0b11111U));
-    u64 hash1 = ctx->hash1 + ((u64)len << (ctx->hash1 & 0b11111U));
-    u64 hash2 = ctx->hash2 + ((u64)len << (ctx->hash2 & 0b11111U));
+    u64 hash  = (u64)len;
+    u64 hash1 = (u64)len;
+    u64 hash2 = (u64)len;
 
     while (len >= sizeof(u64)) {
         const u64 word = *(u64*)str; str += sizeof(u64);
@@ -141,29 +118,29 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
         len -= sizeof(u8);
     }
 
-    encode_s* const cache = ctx->cache;
+    jasf_encode_s* const cache = ctx->cache;
 
     u64 level = hash;
 
-    u32* ptr = ctx->heads + (hash1 % ctx->headSize);
+    u16* ptr = &ctx->heads[hash1 & HEADS_MASK];
 
     loop {
         const uint thisID = *ptr;
 
         // SE ESTÁ MOVENDO COISAS, TEM QUE MOVER O INDEX JUNTO
         // index -> hash?
-        if (thisID == CACHE_SIZE_INVALID) {
+        if (thisID == CACHE_SIZE) {
             /* Não encontrou */
 
-            encode_s* this = cache + ctx->indexes[(ctx->cur = (ctx->cur + 1) % ctx->size)]; // Sobrescreve o mais antigo
-            encode_s* leaf = cache + leaf_node(cache, this - cache); // Encontra um leaf dele para substituir ele
+            jasf_encode_s* this = cache + ctx->indexes[(ctx->cur = (ctx->cur + 1) % CACHE_SIZE)]; // Sobrescreve o mais antigo
+            jasf_encode_s* leaf = cache + jasf_encode_lookup_leaf_node(cache, this - cache); // Encontra um leaf dele para substituir ele
 
             if (this->ptr == NULL) { // Vai usar um que ainda não foi usado
                 this->ptr = ptr;
                *this->ptr = this - cache;
-            } elif ((void*)this <= (void*)ptr && (void*)ptr < ((void*)this + sizeof(encode_s))) { // Vai usar um que seria o ptr
+            } elif ((void*)this <= (void*)ptr && (void*)ptr < ((void*)this + sizeof(jasf_encode_s))) { // Vai usar um que seria o ptr
                 // Vai consumir este, sendo que o node em si já serve para ele no hash tree
-            } elif ((void*)leaf <= (void*)ptr && (void*)ptr < ((void*)leaf + sizeof(encode_s))) { // Vai usar um que possui um leaf, que seria o próprio ptr
+            } elif ((void*)leaf <= (void*)ptr && (void*)ptr < ((void*)leaf + sizeof(jasf_encode_s))) { // Vai usar um que possui um leaf, que seria o próprio ptr
                 // Usa o leaf ao invés do this
                 // this != leaf
 
@@ -183,7 +160,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                 this = leaf;
                 // o leaf já seria o ptr, então já é um lugar em que pode colocar
             } elif (this == leaf) { // Vai usar um que não tem childs; não precisa mover nada
-               *this->ptr = CACHE_SIZE_INVALID; // Tira ele de onde ele está
+               *this->ptr = CACHE_SIZE; // Tira ele de onde ele está
                 this->ptr = ptr; // Coloca ele seguindo o path que seguimos
                *this->ptr = this - cache;
             } else { // Escolheu um que tem leaf
@@ -204,7 +181,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                 ctx->indexes[leafIndex] = this - cache;
 
                 this = leaf;
-               *this->ptr = CACHE_SIZE_INVALID; // Tira ele de onde ele está
+               *this->ptr = CACHE_SIZE; // Tira ele de onde ele está
                 this->ptr = ptr; // Coloca ele seguindo o path que seguimos
                *this->ptr = this - cache;
             }
@@ -216,7 +193,7 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
             return ENCODE_NEW;
         }
 
-        encode_s* const this = cache + thisID;
+        jasf_encode_s* const this = cache + thisID;
 
         if (this->hash  == hash  &&
             this->hash1 == hash1 &&
@@ -228,18 +205,20 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
 
             // 0  1  2  3  4  5  6  7  8  9   -> SIZE 10
             //      LAST        NEW
-            // To encode
-            //      CODE = LAST + (NEW  > LAST)*SIZE - NEW
-            // To decode
-            //      NEW  = LAST + (CODE > LAST)*SIZE - CODE
+            // ENCODE        CODE = LAST + (NEW  > LAST)*SIZE - NEW
+            // DECODE        NEW  = LAST + (CODE > LAST)*SIZE - CODE
             uint code;
             // Transforma o cur no último
-            if ((code = curIndex - 1) >= CACHE_SIZE_INVALID)
-                code += ctx->size; // -1 + size = size - 1 (o index do último)
+            if ((code = curIndex - 1) >= CACHE_SIZE)
+                code += CACHE_SIZE; // -1 + size = size - 1 (o index do último)
             // Faz a mágica
             // Detectamos o overflow para saber que daria algo negativo
-            if ((code -= thisIndex) >= CACHE_SIZE_INVALID)
-                code += ctx->size;
+            if ((code -= thisIndex) >= CACHE_SIZE)
+                code += CACHE_SIZE;
+
+            ASSERT (code < CACHE_SIZE);
+            ASSERT (thisIndex == (((curIndex?:CACHE_SIZE)-1) + (code > ((curIndex?:CACHE_SIZE)-1))*CACHE_SIZE - code));
+            ASSERT (code || (code - 1) == ENCODE_SAME);
 
             // Vai retornar (code - 1), entao:
             //      se aqui (code == 0) não houve diferença (continua no mesmo last); o -1 vai dar overflow e resultar em ENCODE_SAME
@@ -253,13 +232,8 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
                     ctx->indexes[thisIndex] = curID;
                     ctx->cache[curID].index = thisIndex;
                     ctx->cache[thisID].index = curIndex;
-                } ctx->cur = (curIndex + 1) % ctx->size;
+                } ctx->cur = (curIndex + 1) % CACHE_SIZE;
             }
-
-            ASSERT (ctx->size > code);
-
-            ASSERT (thisIndex == (((curIndex?:ctx->size)-1) + (code > ((curIndex?:ctx->size)-1))*ctx->size - code));
-            ASSERT (code || (code - 1) == ENCODE_SAME);
 
             // Desconta 1 porque sempre haverá diferença
             return code - 1;
@@ -269,87 +243,49 @@ static uint lookup(encode_context_s* const restrict ctx, const void* restrict st
         // Se colocou um node aqui, é porque o hash dele aceita este nível atual ou qualquer outro acima.
         // TODO: FIXME: mas isso só vale até certo nível?
         ptr = &this->childs[level % ENCODE_CHILDS_SIZE];
+
         level /= ENCODE_CHILDS_SIZE;
         level += (!level)*hash; // TODO: FIXME: isso aqui vai nos salvar?
-        // CHILDS_BITS tem que ser divisor de 64
-        //ptr = &this->childs[(hash >> (level % 64)) & CHILDS_MASK];
-        // TODO: FIXME: vai dar certo isso?
-        // se só movemos para cima, então está colocando ele num lugar por onde ele já passou
-        //level += CHILDS_BITS;
-        //tuple((x%64) for x in range(0, 98, 2))
-        //(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32)
     }
 }
 
-#define ENCODE_BUFF_SIZE(size, headSize) (sizeof(encode_context_s) + (size)*(sizeof(encode_s) + sizeof(u32)) + (headSize)*sizeof(u32))
+static jasf_encode_context_s* jasf_encode_new (const uint lenMax) {
 
-static encode_context_s* encoder_new (const uint size, const uint headSize, u64 hash, u64 hash1, u64 hash2) {
-
-    if (size < CACHE_SIZE_MIN)
-        return NULL;
-
-    // TODO: FIXME: ver se esse valor está correto aqui
-    if (size > CACHE_SIZE_MAX)
-        return NULL;
-
-    if (headSize < 2)
-        return NULL;
-
-    if (headSize > size)
-        return NULL;
-
-    hash  += rdtscp();
-    hash1 += hash;
-    hash2 += hash1 >> 32;
-
-    encode_context_s_i* const ctx = malloc(ENCODE_BUFF_SIZE(size, headSize));
+    jasf_encode_context_s* const ctx = malloc(sizeof(jasf_encode_context_s));
 
     if (ctx == NULL)
         return NULL;
 
     ctx->cur = 0;
-    ctx->size = size;
-    ctx->hash  = hash;
-    ctx->hash1 = hash1;
-    ctx->hash2 = hash2;
-    ctx->indexes = (void*)(ctx->cache + size);
-    ctx->heads = (void*)(ctx->indexes + size);
-    ctx->headSize = headSize;
+    ctx->lenMax = lenMax;
 
-    // Initialize ctx->cache and ctx->indexes
+    // INDEXES AND CACHE
     uint count = 0;
 
     do {
-        encode_s* const this = &ctx->cache[count];
+        jasf_encode_s* const this = &ctx->cache[count];
 
         this->hash  = 0;
         this->hash1 = 0;
         this->hash2 = 0;
         this->index = count;
-        this->childs[0] = CACHE_SIZE_INVALID;
-        this->childs[1] = CACHE_SIZE_INVALID;
-        this->childs[2] = CACHE_SIZE_INVALID;
-        this->childs[3] = CACHE_SIZE_INVALID;
-#if ENCODE_CHILDS_SIZE > 4
-        this->childs[4] = CACHE_SIZE_INVALID;
-#if ENCODE_CHILDS_SIZE > 5
-        this->childs[5] = CACHE_SIZE_INVALID;
-        this->childs[6] = CACHE_SIZE_INVALID;
-#endif
-#endif
+        this->childs[0] = CACHE_SIZE;
+        this->childs[1] = CACHE_SIZE;
+        this->childs[2] = CACHE_SIZE;
         this->ptr = NULL;
 
         ctx->indexes[count] = count;
 
-    } while (++count != size);
+    } while (++count != CACHE_SIZE);
 
+    // HEADS
     count = 0;
 
     do {
-        ctx->heads[count] = CACHE_SIZE_INVALID;
-    } while (++count != headSize);
+        ctx->heads[count] = CACHE_SIZE;
+    } while (++count != HEADS_SIZE);
 
-    return (encode_context_s*)ctx;
+    return ctx;
 }
 
 #define COMMONS_N (sizeof(commons)/(2*sizeof(char*)))
@@ -385,6 +321,10 @@ static const char* commons[] = {
     _COMMON("JOGO DE VIDEO GAME"),
     _COMMON("JOGO DE PANELA"),
     _COMMON("JOGO DE TABULEIRO"),
+    _COMMON("O RATO ROEU A ROUPA DO REI DE ROMA"),
+    _COMMON("VOVO MAFALDA"),
+    _COMMON("RECEITA DA VO SINHA"),
+    _COMMON("AM I INSANE? OR AM I, SO SANE THAT I JUST... BLEW YOUR MIND? =]"),
     _COMMON("ESTA EH UMA FRASE BEEEM GRANDONA GRANDONA GIGANTE GIGANTESCAMESMO OLHA SO COMO EH GRANDE E TOSCA ESSA FRASE GENTE VOU GANHAR UM OSCAR POR TER ESCRITO ELA IIHAAA"),
     _COMMON("EIWFIGWEWIOFGUY Y23 78F Y2HCDSAJ CGHW D2TY3 DUGBHE2DUI234W9E8FUH3g43g2YE 89DIJX 8Y29HUX 89UHFC2EW 8CV9HU2E8CH9U2E 78HX29HUC 29U"),
     _COMMON("EIWFIGWEEWG39WEG 234G3BVREHH56HN56BFUIWE IFHJASN 7EUIWY34W9E8FUHCWEJC2YE 89DIJX 8Y29HUX 89UHFC2EW 8CV9HU2E8CH9U2E 78HX29HUC 29U"),
@@ -396,8 +336,6 @@ static const char* commons[] = {
 };
 
 int main (void) {
-
-    uint cacheSize;
 
     u64 random1 = 0;
 
@@ -424,189 +362,180 @@ int main (void) {
         0xe0f40460735dedf5ULL, 0x0847f974623a4650ULL, 0x04f05d5ff4065f47ULL, 0x0054074050507007ULL, 0x445604fa403af044ULL,
         };
 
-    static const uint cacheSizes[] = {
-         0xFFFF,   64,
-         0xFFFF,  512,
-         0xFFFF, 4096,
-         0xFFFF, 7049,
-         0xFFFF, 8192,
-        0xFFFFF,   64,
-        0xFFFFF,  512,
-        0xFFFFF, 4096,
-        0xFFFFF, 8192,
-        0
-        };
+    uintll tests[] = { 1, 50, 51, 52, 100, 500, 768, 1024, 2048, 4096, 8192,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        100*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        500*CACHE_SIZE,
+        2048*CACHE_SIZE, 2048*CACHE_SIZE, 4096*CACHE_SIZE, 4096*CACHE_SIZE, 0 };
+    uint test = 0;
+    uintll count;
 
-    uint x = 0;
+    while ((count = tests[test++])) {
 
-    while ((cacheSize = cacheSizes[x*2])) {
+        jasf_encode_context_s* const ctx = jasf_encode_new(256);
 
-        uint headSize = cacheSizes[x++*2 + 1];
+        ASSERT ( ctx != NULL );
 
-        uintll tests[] = { 1, 1, 2, 2, 100, 200, 300, 400, 500, 1000, 500, 1, 1, 15*cacheSize, 50*cacheSize, 50*cacheSize, 50*cacheSize, 0 };
-        uint test = 0;
-        uintll count;
+        random1 += rdtscp() & 0xFFFFU;
 
-        while ((count = tests[test++])) {
+        printf("BUFF %5u TEST %2u COUNT %12llu SEED 0x%016llX ...", (uint)sizeof(jasf_encode_context_s), test, count, (uintll)random1);
 
-            encode_context_s* const ctx = encoder_new(cacheSize, headSize, 0, 0, 0);
+        fflush(stdout);
 
-            ASSERT ( ctx != NULL );
-            ASSERT ( ctx->size == cacheSize );
-            ASSERT ( ctx->headSize == headSize );
+        uintll news = 0;
+        uintll repeateds = 0;
+        uintll cacheds = 0;
+        uintll levels = 0;
+        uintll entries = 0;
+        uintll sizeEncoded = 0;
+        uintll sizeReal = 0;
 
-            random1 += rdtscp();
+        uintll valuesN = count;
 
-            printf("CACHE SIZE %7u HEAD SIZE %5u BUFF %8llu TEST %2u COUNT %12llu SEED 0x%016llX ...", cacheSize, headSize, (uintll)ENCODE_BUFF_SIZE(cacheSize, headSize), test, count, (uintll)random1);
+        while (count--) {
 
-            fflush(stdout);
+            buff[ 0] += random1++;
+            buff[ 1] += random1++;
+            buff[ 2] += random1++;
+            buff[ 3] += random1++;
+            buff[ 4] += random1++;
+            buff[ 5] += random1++;
+            buff[ 6] += random1++;
+            buff[ 7] += random1++;
+            buff[ 8] += random1++;
+            buff[ 9] += random1++;
+            buff[10] += random1++;
 
-            uintll news = 0;
-            uintll repeateds = 0;
-            uintll cacheds = 0;
-            uintll levels = 0;
-            uintll entries = 0;
-            uintll sizeEncoded = 0;
-            uintll sizeReal = 0;
+            random1 += random1 << (count   & 0b11111U);
+            random1 += count   << (random1 & 0b11111U);
+            random1++;
 
-            uintll valuesN = count;
+            const void* value;
+            uint valueSize;
 
-            while (count--) {
-
-                buff[ 0] += random1++;
-                buff[ 1] += random1++;
-                buff[ 2] += random1++;
-                buff[ 3] += random1++;
-                buff[ 4] += random1++;
-                buff[ 5] += random1++;
-                buff[ 6] += random1++;
-                buff[ 7] += random1++;
-                buff[ 8] += random1++;
-                buff[ 9] += random1++;
-                buff[10] += random1++;
-
-                random1 += random1 << (count   & 0b11111U);
-                random1 += count   << (random1 & 0b11111U);
-                random1++;
-
-                const void* value;
-                uint valueSize;
-
-                if ((count % 30) > 15) {
-                    value = buff;
-                    valueSize = 1 + (random1 % (sizeof(buff) - 1));
-                } else {
-                    value = COMMONS_VALUE(random1);
-                    valueSize = COMMONS_SIZE(random1);
-                }
-
-                const uint code = lookup(ctx, value, valueSize);
-
-                ASSERT (code < (cacheSize - 1) || (code == ENCODE_NEW) || (code == ENCODE_SAME));
-
-                switch (code) {
-                    case ENCODE_SAME:
-                        sizeEncoded += 1;
-                        repeateds++;
-                        break;
-                    case ENCODE_NEW:
-                        sizeEncoded += 1 + valueSize;
-                        news++;
-                        break;
-                    default: /* TODO: FIXME: manter isso em sincronia com as definições/configurações */
-                        sizeEncoded += (code > 0xFFF) ? 3 : (code >= 0xF) ? 2 : 1;
-                        cacheds++;
-                }
-
-                sizeReal += 1 + valueSize;
+            if ((count % 35) > 15) {
+                value = buff;
+                valueSize = 1 + (random1 % (sizeof(buff) - 1));
+            } else {
+                value = COMMONS_VALUE(random1);
+                valueSize = COMMONS_SIZE(random1);
             }
 
-            count = ctx->size;
+            const uint code = jasf_encode_lookup(ctx, value, valueSize);
 
-            while (count--) {   //  ptr tem q ue estar entre o head ou o .child[] de algum
+            ASSERT (code < (CACHE_SIZE - 1) || (code == ENCODE_NEW) || (code == ENCODE_SAME));
 
-                // All cache[indexes[x]].index -> x
-                ASSERT ( ctx->cache[ctx->indexes[count]].index == count );
-
-                const encode_s* const this = &ctx->cache[count];
-
-                // Seu ptr tem que apontar para ele
-                ASSERT ( this->ptr == NULL || *this->ptr == count );
-
-                // Seu ptr não pode apontar para um próprio slot de child
-                ASSERT ( (void*)this->ptr < (void*)this || (void*)this->ptr >= ((void*)this + sizeof(*this)) );
-
-                // O valor no slot de seu child não pode ser si mesmo
-                ASSERT (
-                    count != this->childs[0] &&
-                    count != this->childs[1] &&
-                    count != this->childs[2] &&
-                    count != this->childs[3] &&
-                    count != this->childs[4]
-                    );
-
-                //
-                ASSERT (!(
-                    (this->childs[0] > ctx->size && this->childs[0] != CACHE_SIZE_INVALID) ||
-                    (this->childs[1] > ctx->size && this->childs[1] != CACHE_SIZE_INVALID) ||
-                    (this->childs[2] > ctx->size && this->childs[2] != CACHE_SIZE_INVALID) ||
-                    (this->childs[3] > ctx->size && this->childs[3] != CACHE_SIZE_INVALID) ||
-                    (this->childs[4] > ctx->size && this->childs[4] != CACHE_SIZE_INVALID)
-                    ));
+            switch (code) {
+                case ENCODE_SAME:
+                    sizeEncoded += 1;
+                    repeateds++;
+                    break;
+                case ENCODE_NEW:
+                    sizeEncoded += 1 + valueSize;
+                    news++;
+                    break;
+                default: /* TODO: FIXME: manter isso em sincronia com as definições/configurações */
+                    sizeEncoded += (code > 0xFFF) ? 3 : (code >= 0xF) ? 2 : 1;
+                    cacheds++;
             }
 
-            // TODO: FIXME: All heads are 0 or its target points to it in it s ptr
+            sizeReal += 1 + valueSize;
+        }
 
-            // All items in cache
-                // all childs point to it
-                // its *ptr points to it
-                // it's ptr is not itself
-                // it's childs are not itself
-                // all ids are 0 <= id < size
+        count = 0;
 
-            count = cacheSize;
+        do {   //  ptr tem q ue estar entre o head ou o .child[] de algum
 
-            while (count--) {
+            // All cache[indexes[x]].index -> x
+            ASSERT ( ctx->cache[ctx->indexes[count]].index == count );
 
-                const encode_s* const this = &ctx->cache[count];
+            const jasf_encode_s* const this = &ctx->cache[count];
 
-                if (this->ptr) {
+            // Seu ptr tem que apontar para ele
+            ASSERT ( this->ptr == NULL || *this->ptr == count );
 
-                    u64 level = this->hash;
-                    uint id = ctx->heads[this->hash1 % ctx->headSize];
+            // Seu ptr não pode apontar para um próprio slot de child
+            ASSERT ( (void*)this->ptr < (void*)this || (void*)this->ptr >= ((void*)this + sizeof(*this)) );
 
-                    while (id != count) {
-                        ASSERT (id != CACHE_SIZE_INVALID);
-                        levels++;
-                        id = ctx->cache[id].childs[level % ENCODE_CHILDS_SIZE];
-                        level /= ENCODE_CHILDS_SIZE;
-                        level += (!level)*this->hash;
-                    }
-
-                    entries++;
-
-                } else {
-                    ASSERT (this->ptr == NULL);
-                    ASSERT (this->childs[0] == CACHE_SIZE_INVALID);
-                    ASSERT (this->childs[1] == CACHE_SIZE_INVALID);
-                    ASSERT (this->childs[2] == CACHE_SIZE_INVALID);
-                    ASSERT (this->childs[3] == CACHE_SIZE_INVALID);
-                    ASSERT (this->childs[4] == CACHE_SIZE_INVALID);
-                    //ASSERT (this->index == count);
-                    ASSERT (this->hash == 0);
-                    ASSERT (this->hash1 == 0);
-                    ASSERT (this->hash2 == 0);
-                }
-            }
-
-            // TODO: FIXME: se não é o mesmo, não pode ter hash igual
-
-            printf(" NEWS (%%) %3u CACHEDS (%%) %3u REPEATEDS (%%) %3u LEVEL AVG %3llu SIZE (%%) %3u\n",
-                (uint)((news*100)/valuesN), (uint)((cacheds*100)/valuesN), (uint)((repeateds*100)/valuesN), levels/entries, (uint)((sizeEncoded*100)/sizeReal)
+            // O valor no slot de seu child não pode ser si mesmo
+            ASSERT (
+                count != this->childs[0] &&
+                count != this->childs[1] &&
+                count != this->childs[2]
                 );
 
-            free(ctx);
-        }
+        } while (++count != CACHE_SIZE);
+
+        // TODO: FIXME: All heads are 0 or its target points to it in it s ptr
+
+        // All items in cache
+            // all childs point to it
+            // its *ptr points to it
+            // it's ptr is not itself
+            // it's childs are not itself
+            // all ids are 0 <= id < size
+
+        count = 0;
+
+        do {
+            const jasf_encode_s* const this = &ctx->cache[count];
+
+            if (this->ptr) {
+
+                u64 level = this->hash;
+                uint id = ctx->heads[this->hash1 & HEADS_MASK];
+
+                while (id != count) {
+                    ASSERT (id != CACHE_SIZE);
+                    levels++;
+                    id = ctx->cache[id].childs[level % ENCODE_CHILDS_SIZE];
+                    level /= ENCODE_CHILDS_SIZE;
+                    level += (!level)*this->hash;
+                }
+
+                entries++;
+
+            } else {
+                ASSERT (this->hash == 0);
+                ASSERT (this->hash1 == 0);
+                ASSERT (this->hash2 == 0);
+                ASSERT (this->ptr == NULL);
+                ASSERT (this->childs[0] == CACHE_SIZE);
+                ASSERT (this->childs[1] == CACHE_SIZE);
+                ASSERT (this->childs[2] == CACHE_SIZE);
+                //ASSERT (this->index == count);
+            }
+        } while (++count != CACHE_SIZE);
+
+        // TODO: FIXME: se não é o mesmo, não pode ter hash igual
+
+        printf(" NEW %3u %% CACHED %3u %% REPEATED %3u %%  LEVEL AVG %3llu SIZE %3u %%\n",
+            (uint)((news*100)/valuesN), (uint)((cacheds*100)/valuesN), (uint)((repeateds*100)/valuesN), levels/entries, (uint)((sizeEncoded*100)/sizeReal)
+            );
+
+        free(ctx);
     }
 
     return 0;
