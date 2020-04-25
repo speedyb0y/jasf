@@ -42,19 +42,14 @@ static inline u64 rdtscp(void) {
 #define HEADS_SIZE 0x10000U
 #define HEADS_MASK 0xFFFFU
 
-#define PTR_OF(cached) ((void*)(cached) - (void*)cache)
-#define PTR_LOAD(ptr)  ((void*)cache + (ptr))
-#define PTR_STORE(ptr, value)  ((ptr) = (void*)cache + (value))
+#define HASH2 0x32434323ULL // TODO: // FIXME: compile-time random
 
 #define ENCODE_CHILDS_SIZE 3
 
 typedef struct jasf_encode_s {
     u64 hash;
     u64 hash1;
-#if 1
-    u16 hash2;
-#endif
-    u16* ptr; // TODO: FIXME: transformar em i32, relativo a ele mesmo
+    u16* ptr; // TODO: FIXME: transformar em i32, relativo ao ctx->cache
     u16 index;
     u16 childs[ENCODE_CHILDS_SIZE];
 } jasf_encode_s;
@@ -94,7 +89,7 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
 
     u64 hash  = (u64)ctx;
     u64 hash1 = (u64)len;
-    u64 hash2 = (u64)len;
+    u64 hash2 = (u64)HASH2;
 
     while (len >= sizeof(u64)) {
         const u64 word = *(u64*)str; str += sizeof(u64);
