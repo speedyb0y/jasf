@@ -22,14 +22,14 @@ typedef unsigned            uint;
 typedef unsigned long long  uintll;
 
 #if 1
-static inline u64 rdtscp(void) {
+static inline u64 rdtsc(void) {
     uint lo;
     uint hi;
-    __asm__ __volatile__ ("rdtscp" : "=a" (lo), "=d" (hi));
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
     return ((u64)hi << 32) | lo;
 }
 #else
-#define rdtscp() ((u64)0)
+#define rdtsc() ((u64)0)
 #endif
 
 // É o valor máximo que cabe em 1 byte, nos RBITS
@@ -37,31 +37,26 @@ static inline u64 rdtscp(void) {
 // 0bCCCC 1111
 #define CODE_CACHED_RBITS_MAX 15
 
-//#define CACHE_SIZE 0xFFFF
-#define CACHE_SIZE 0xFF
-#define HEADS_SIZE 65536
-#define HASH2 0x32434323ULL // TODO: // FIXME: compile-time random
+#define CACHE_N 0xFFF
+#define HEADS_N 65536
 #define ENCODE_CHILDS_SIZE 3
 
-typedef struct jasf_encode_s {
-    u64 hash;
+typedef struct JASFEncodeNode {
+    u64 hash0;
     u64 hash1;
-    u16* ptr; // TODO: FIXME: transformar em i32, relativo ao ctx->cache
-    u16 index;
-    u16 childs[ENCODE_CHILDS_SIZE];
-} jasf_encode_s;
+    u64 hash2;
+    u64 hash3; // SÓ NECESSÁRIO PARA TESTAR
+    u32* ptr; // TODO: FIXME: transformar em i32, relativo ao ctx->cache
+    u32 childs[ENCODE_CHILDS_SIZE];
+    u32 index;
+} JASFEncodeNode;
 
-typedef struct jasf_encode_context_s {
+typedef struct JASFEncodeContext {
     uint cur;
-    uint lenMax;
-    u16 indexes[CACHE_SIZE];
-    jasf_encode_s cache[CACHE_SIZE];
-    u16 heads[HEADS_SIZE];
-} jasf_encode_context_s;
-
-typedef struct jasf_decode_s {
-    u16 type;
-} jasf_decode_s;
+    u32 indexes[CACHE_N];
+    u32 heads[HEADS_N];
+    JASFEncodeNode cache[CACHE_N];
+} JASFEncodeContext;
 
 #define ABSDIFF(a, b)  ((a) >= (b)) ? ((a) - (b)) : ((b) - (a))
 
@@ -73,70 +68,62 @@ typedef struct jasf_decode_s {
 #define ASSERT(condition) ({ if (!(condition)) { write(STDERR_FILENO, "\nASSERT FAILED: " #condition "\n", sizeof("\nASSERT FAILED: " #condition "\n")); abort(); } })
 #endif
 
-static inline uint jasf_encode_lookup_leaf_node(const jasf_encode_s* const restrict cache, const uint node) {
+static inline uint jasf_encode_lookup_leaf_node(const JASFEncodeNode* const restrict cache, const uint node) {
     uint slot = ENCODE_CHILDS_SIZE - 1;
     do { const uint id = cache[node].childs[slot];
-        if (id != CACHE_SIZE)
+        if (id != CACHE_N)
             return jasf_encode_lookup_leaf_node(cache, id);
     } while (slot--);
     return node;
 }
 
-static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const void* restrict str, uint len) {
+static uint jasf_encode_lookup(JASFEncodeContext* const restrict ctx, const void* restrict str, uint len) {
 
-    u64 hash  = (u64)ctx;
-    u64 hash1 = (u64)len;
-    u64 hash2 = (u64)HASH2;
+    JASFEncodeNode* const cache = ctx->cache;
 
-    while (len >= sizeof(u64)) {
-        const u64 word = *(u64*)str; str += sizeof(u64);
-        hash   += word;
-        hash1  += hash;
-        hash2  += hash1;
-        hash   += hash >> 32;
-        hash   += hash1;
-        hash1  += hash1 >> 32;
-        hash1  += hash2;
-        len -= sizeof(u64);
+    u64 hash0 = (u64)len;
+    u64 hash1 = (u64)len << 16;
+    u64 hash2 = (u64)len << 32;
+    u64 hash3 = (u64)len << 48;
+
+    while (len) { len -= sizeof(u8);
+        const u64 w = *(u8*)str; str += sizeof(u8);
+        hash3 += hash0;
+        hash3 += hash1;
+        hash3 += hash2;
+        hash0 += w;
+        hash1 ^= w;
+        hash2 *= w;
+        hash2 += hash0 & w;
+        hash0 += hash1 & w;
+        hash1 += hash2 & w;
+        hash2 += hash3 >> (w % 64);
+        hash1 += hash3 >> (w % 41);
+        hash0 += hash3 >> (w % 29);
     }
 
-    while (len) {
-        const u64 word = *(u8*)str; str += sizeof(u8);
-        hash   += word;
-        hash1  += hash;
-        hash2  += hash1;
-        hash   += hash >> 32;
-        hash   += hash1;
-        hash1  += hash1 >> 32;
-        hash1  += hash2;
-        len -= sizeof(u8);
-    }
+    hash0 += hash0 >> 48;
+    hash0 += hash0 >> 32;
+    hash0 += hash0 >> 16;
+    hash0 %= HEADS_N;
 
-    hash2 += hash2 >> 16;
-    hash2 += hash2 >> 16;
-    hash2 += hash2 >> 16;
+    u32* ptr = &ctx->heads[hash0];
 
-    hash1 = hash2; //  para teste
-
-    jasf_encode_s* const cache = ctx->cache;
-
-    u64 level = hash;
-
-    u16* ptr = &ctx->heads[hash2 % HEADS_SIZE]; // USAR O HASH2 !!!!!!
+    u64 level = hash3;
 
     loop {
         const uint thisID = *ptr;
 
-        if (thisID == CACHE_SIZE) {
+        if (thisID == CACHE_N) {
             // NOT FOUND
 
             // SOBRESCREVE O MAIS ANTIGO
-            jasf_encode_s* this = cache + ctx->indexes[(ctx->cur = (ctx->cur + 1) % CACHE_SIZE)];
+            JASFEncodeNode* this = cache + ctx->indexes[(ctx->cur = (ctx->cur + 1) % CACHE_N)];
 
             if (this->ptr) {
 
                 // ANDA ATÉ UM LEAF DELE
-                jasf_encode_s* leaf = cache + jasf_encode_lookup_leaf_node(cache, this - cache);
+                JASFEncodeNode* leaf = cache + jasf_encode_lookup_leaf_node(cache, this - cache);
 
                 // SWAP IT BY ONE OF IT'S LEAVES
                 const uint leafIndex = leaf->index;
@@ -145,16 +132,18 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
                 ctx->indexes[thisIndex] = leaf - cache;
                 ctx->indexes[leafIndex] = this - cache;
 
-                this->hash  = leaf->hash;
+                this->hash0 = leaf->hash0;
                 this->hash1 = leaf->hash1;
+                this->hash2 = leaf->hash2;
+                this->hash3 = leaf->hash3;
                 this->index = leafIndex;
 
                 this = leaf;
                 this->index = thisIndex;
 
                 //
-                if (!((void*)this <= (void*)ptr && (void*)ptr < ((void*)this + sizeof(jasf_encode_s)))) {
-                   *this->ptr = CACHE_SIZE;
+                if (!((void*)this <= (void*)ptr && (void*)ptr < ((void*)this + sizeof(JASFEncodeNode)))) { // TODO: FIXME: PRECISA COLOCAR UM PADDING NO HEADS PARA QUE NÃO DE ERRO AQUI?
+                   *this->ptr = CACHE_N;
                     this->ptr = ptr;
                    *this->ptr = this - cache;
                 }
@@ -163,35 +152,39 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
                *this->ptr = this - cache;
             }
 
-            this->hash  = hash;
+            this->hash0 = hash0;
             this->hash1 = hash1;
+            this->hash2 = hash2;
+            this->hash3 = hash3;
 
             return ENCODE_NEW;
         }
 
-        jasf_encode_s* const this = cache + thisID;
+        JASFEncodeNode* const this = cache + thisID;
 
-        if (this->hash == hash && this->hash1 == hash1) {
-            /* Encontrou */
+        if (this->hash0 == hash0 &&
+            this->hash1 == hash1 &&
+            this->hash2 == hash2) {
+            // FOUND
 
             const uint thisIndex = this->index;
-            const uint curIndex = ctx->cur;
+            const uint currIndex = ctx->cur;
 
             // 0  1  2  3  4  5  6  7  8  9   -> SIZE 10
             //      LAST        NEW
             // ENCODE        CODE = LAST + (NEW  > LAST)*SIZE - NEW
             // DECODE        NEW  = LAST + (CODE > LAST)*SIZE - CODE
-            uint code;
+            uint code = currIndex - 1;
             // Transforma o cur no último
-            if ((code = curIndex - 1) >= CACHE_SIZE)
-                code += CACHE_SIZE; // -1 + size = size - 1 (o index do último)
+            if (code >= CACHE_N)
+                code += CACHE_N; // -1 + size = size - 1 (o index do último)
             // Faz a mágica
             // Detectamos o overflow para saber que daria algo negativo
-            if ((code -= thisIndex) >= CACHE_SIZE)
-                code += CACHE_SIZE;
+            if ((code -= thisIndex) >= CACHE_N)
+                code += CACHE_N;
 
-            ASSERT (code < CACHE_SIZE);
-            ASSERT (thisIndex == (((curIndex?:CACHE_SIZE)-1) + (code > ((curIndex?:CACHE_SIZE)-1))*CACHE_SIZE - code));
+            ASSERT (code < CACHE_N);
+            ASSERT (thisIndex == (((currIndex?:CACHE_N)-1) + (code > ((currIndex?:CACHE_N)-1))*CACHE_N - code));
             ASSERT (code || (code - 1) == ENCODE_SAME);
 
             // Vai retornar (code - 1), entao:
@@ -200,13 +193,13 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
             // Só muda mesmo se não for mais caber em um byte
             // Assim evita ficar executando isso para diferenças pequenas caso sejam frequentes, até porque não vai fazer tanta diferença assim
             if (code > (CODE_CACHED_RBITS_MAX + 1)) {
-                if (curIndex != thisIndex) { // se thisIndex == ctx->cur, não precisa copiar
-                    const uint curID = ctx->indexes[curIndex];
-                    ctx->indexes[curIndex] = thisID;
-                    ctx->indexes[thisIndex] = curID;
-                    ctx->cache[curID].index = thisIndex;
-                    ctx->cache[thisID].index = curIndex;
-                } ctx->cur = (curIndex + 1) % CACHE_SIZE;
+                if (currIndex != thisIndex) { // se thisIndex == ctx->cur, não precisa copiar
+                    const uint currID = ctx->indexes[currIndex];
+                    ctx->indexes[currIndex] = thisID;
+                    ctx->indexes[thisIndex] = currID;
+                    ctx->cache[currID].index = thisIndex;
+                    ctx->cache[thisID].index = currIndex;
+                } ctx->cur = (currIndex + 1) % CACHE_N;
             }
 
             // Desconta 1 porque sempre haverá diferença
@@ -219,46 +212,43 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
         ptr = &this->childs[level % ENCODE_CHILDS_SIZE];
 
         level /= ENCODE_CHILDS_SIZE;
-#if 0 // desnecessário pois dificilmente teremos tantos collisions
-        level += (!level)*hash;
-#endif
+        level += (!level)*hash1;
     }
 }
 
-static jasf_encode_context_s* jasf_encode_new (const uint lenMax) {
+static JASFEncodeContext* jasf_encode_new (void) {
 
-    jasf_encode_context_s* const ctx = malloc(sizeof(jasf_encode_context_s));
+    JASFEncodeContext* const ctx = malloc(sizeof(JASFEncodeContext));
 
     if (ctx == NULL)
         return NULL;
 
     ctx->cur = 0;
-    ctx->lenMax = lenMax;
 
     // INDEXES AND CACHE
-    uint count = 0;
+    uint count = CACHE_N;
 
-    do {
-        jasf_encode_s* const this = &ctx->cache[count];
+    while (count--) {
 
-        this->hash  = 0;
-        this->hash1 = 0;
-        this->index = count;
-        this->childs[0] = CACHE_SIZE;
-        this->childs[1] = CACHE_SIZE;
-        this->childs[2] = CACHE_SIZE;
-        this->ptr = NULL;
+        ctx->cache[count].hash0 = 0;
+        ctx->cache[count].hash1 = 0;
+        ctx->cache[count].hash2 = 0;
+        ctx->cache[count].hash3 = 0;
+        ctx->cache[count].ptr = NULL;
+        ctx->cache[count].childs[0] = CACHE_N;
+        ctx->cache[count].childs[1] = CACHE_N;
+        ctx->cache[count].childs[2] = CACHE_N;
+        ctx->cache[count].index = count;
 
         ctx->indexes[count] = count;
-
-    } while (++count != CACHE_SIZE);
+    }
 
     // HEADS
-    count = 0;
+    count = HEADS_N;
 
-    do {
-        ctx->heads[count] = CACHE_SIZE;
-    } while (++count != HEADS_SIZE);
+    while (count--) {
+        ctx->heads[count] = CACHE_N;
+    }
 
     return ctx;
 }
@@ -373,13 +363,13 @@ int main (void) {
         8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
         8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
         8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
-        CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE,
-        10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE,
-        100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE,
-        500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE,
-        2048*CACHE_SIZE, 2048*CACHE_SIZE, 4096*CACHE_SIZE, 4096*CACHE_SIZE,
-              CACHE_SIZE*CACHE_SIZE,
-        500ULL*CACHE_SIZE*CACHE_SIZE,
+        CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N, CACHE_N,
+        10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N, 10*CACHE_N,
+        100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N, 100*CACHE_N,
+        500*CACHE_N, 500*CACHE_N, 500*CACHE_N, 500*CACHE_N, 500*CACHE_N, 500*CACHE_N, 500*CACHE_N, 500*CACHE_N,
+        2048*CACHE_N, 2048*CACHE_N, 4096*CACHE_N, 4096*CACHE_N,
+              CACHE_N*CACHE_N,
+        500ULL*CACHE_N*CACHE_N,
         0
         };
     uint test = 0;
@@ -387,13 +377,13 @@ int main (void) {
 
     while ((count = tests[test++])) {
 
-        jasf_encode_context_s* const ctx = jasf_encode_new(256);
+        JASFEncodeContext* const ctx = jasf_encode_new();
 
         ASSERT ( ctx != NULL );
 
-        random1 += rdtscp() & 0xFFFFU;
+        random1 += rdtsc() & 0xFFFFU;
 
-        printf("BUFF %5u TEST %2u COUNT %12llu SEED 0x%016llX ...", (uint)sizeof(jasf_encode_context_s), test, count, (uintll)random1);
+        printf("BUFF %5u TEST %2u COUNT %12llu SEED 0x%016llX ...", (uint)sizeof(JASFEncodeContext), test, count, (uintll)random1);
 
         fflush(stdout);
 
@@ -444,7 +434,7 @@ int main (void) {
 
             const uint code = jasf_encode_lookup(ctx, value, valueSize);
 
-            ASSERT (code < (CACHE_SIZE - 1) || (code == ENCODE_NEW) || (code == ENCODE_SAME));
+            ASSERT (code < (CACHE_N - 1) || (code == ENCODE_NEW) || (code == ENCODE_SAME));
 
             switch (code) {
                 case ENCODE_SAME:
@@ -470,7 +460,7 @@ int main (void) {
             // All cache[indexes[x]].index -> x
             ASSERT ( ctx->cache[ctx->indexes[count]].index == count );
 
-            const jasf_encode_s* const this = &ctx->cache[count];
+            const JASFEncodeNode* const this = &ctx->cache[count];
 
             // Seu ptr tem que apontar para ele
             ASSERT ( this->ptr == NULL || *this->ptr == count );
@@ -485,7 +475,7 @@ int main (void) {
                 count != this->childs[2]
                 );
 
-        } while (++count != CACHE_SIZE);
+        } while (++count != CACHE_N);
 
         // TODO: FIXME: All heads are 0 or its target points to it in it s ptr
 
@@ -499,35 +489,36 @@ int main (void) {
         count = 0;
 
         do {
-            const jasf_encode_s* const this = &ctx->cache[count];
+            const JASFEncodeNode* const this = &ctx->cache[count];
 
             if (this->ptr) {
 
-                u64 level = this->hash;
-                uint id = ctx->heads[this->hash1 % HEADS_SIZE];
+                u64 level = this->hash3;
+
+                uint id = ctx->heads[this->hash0 % HEADS_N];
 
                 while (id != count) {
-                    ASSERT (id != CACHE_SIZE);
+                    ASSERT (id != CACHE_N);
                     levels++;
                     id = ctx->cache[id].childs[level % ENCODE_CHILDS_SIZE];
                     level /= ENCODE_CHILDS_SIZE;
-#if 0
-                    level += (!level)*this->hash;
-#endif
+                    level += (!level)*this->hash1;
                 }
 
                 entries++;
 
             } else {
-                ASSERT (this->hash == 0);
+                ASSERT (this->hash0 == 0);
                 ASSERT (this->hash1 == 0);
+                ASSERT (this->hash2 == 0);
+                ASSERT (this->hash3 == 0);
                 ASSERT (this->ptr == NULL);
-                ASSERT (this->childs[0] == CACHE_SIZE);
-                ASSERT (this->childs[1] == CACHE_SIZE);
-                ASSERT (this->childs[2] == CACHE_SIZE);
+                ASSERT (this->childs[0] == CACHE_N);
+                ASSERT (this->childs[1] == CACHE_N);
+                ASSERT (this->childs[2] == CACHE_N);
                 //ASSERT (this->index == count);
             }
-        } while (++count != CACHE_SIZE);
+        } while (++count != CACHE_N);
 
         // TODO: FIXME: se não é o mesmo, não pode ter hash igual
 
