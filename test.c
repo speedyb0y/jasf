@@ -37,7 +37,8 @@ static inline u64 rdtscp(void) {
 // 0bCCCC 1111
 #define CODE_CACHED_RBITS_MAX 15
 
-#define CACHE_SIZE 0xFFFF
+//#define CACHE_SIZE 0xFFFF
+#define CACHE_SIZE 0xFF
 #define HEADS_SIZE 65536
 #define HASH2 0x32434323ULL // TODO: // FIXME: compile-time random
 #define ENCODE_CHILDS_SIZE 3
@@ -126,60 +127,39 @@ static uint jasf_encode_lookup(jasf_encode_context_s* const restrict ctx, const 
     loop {
         const uint thisID = *ptr;
 
-        // SE ESTÁ MOVENDO COISAS, TEM QUE MOVER O INDEX JUNTO
-        // index -> hash?
         if (thisID == CACHE_SIZE) {
-            /* Não encontrou */
+            // NOT FOUND
 
-            jasf_encode_s* this = cache + ctx->indexes[(ctx->cur = (ctx->cur + 1) % CACHE_SIZE)]; // Sobrescreve o mais antigo
-            jasf_encode_s* leaf = cache + jasf_encode_lookup_leaf_node(cache, this - cache); // Encontra um leaf dele para substituir ele
+            // SOBRESCREVE O MAIS ANTIGO
+            jasf_encode_s* this = cache + ctx->indexes[(ctx->cur = (ctx->cur + 1) % CACHE_SIZE)];
 
-            if (this->ptr == NULL) { // Vai usar um que ainda não foi usado
+            if (this->ptr) {
+
+                // ANDA ATÉ UM LEAF DELE
+                jasf_encode_s* leaf = cache + jasf_encode_lookup_leaf_node(cache, this - cache);
+
+                // SWAP IT BY ONE OF IT'S LEAVES
+                const uint leafIndex = leaf->index;
+                const uint thisIndex = this->index;
+
+                ctx->indexes[thisIndex] = leaf - cache;
+                ctx->indexes[leafIndex] = this - cache;
+
+                this->hash  = leaf->hash;
+                this->hash1 = leaf->hash1;
+                this->index = leafIndex;
+
+                this = leaf;
+                this->index = thisIndex;
+
+                //
+                if (!((void*)this <= (void*)ptr && (void*)ptr < ((void*)this + sizeof(jasf_encode_s)))) {
+                   *this->ptr = CACHE_SIZE;
+                    this->ptr = ptr;
+                   *this->ptr = this - cache;
+                }
+            } else { // VAI USAR UM QUE AINDA NÃO FOI USADO
                 this->ptr = ptr;
-               *this->ptr = this - cache;
-            } elif ((void*)this <= (void*)ptr && (void*)ptr < ((void*)this + sizeof(jasf_encode_s))) { // Vai usar um que seria o ptr
-                // Vai consumir este, sendo que o node em si já serve para ele no hash tree
-            } elif ((void*)leaf <= (void*)ptr && (void*)ptr < ((void*)leaf + sizeof(jasf_encode_s))) { // Vai usar um que possui um leaf, que seria o próprio ptr
-                // Usa o leaf ao invés do this
-                // this != leaf
-
-                this->hash  = leaf->hash;
-                this->hash1 = leaf->hash1;
-
-                const uint leafIndex = leaf->index;
-                const uint thisID = this->index;
-
-                this->index = leafIndex;
-                leaf->index = thisID;
-
-                ctx->indexes[thisID] = leaf - cache;
-                ctx->indexes[leafIndex] = this - cache;
-
-                this = leaf;
-                // o leaf já seria o ptr, então já é um lugar em que pode colocar
-            } elif (this == leaf) { // Vai usar um que não tem childs; não precisa mover nada
-               *this->ptr = CACHE_SIZE; // Tira ele de onde ele está
-                this->ptr = ptr; // Coloca ele seguindo o path que seguimos
-               *this->ptr = this - cache;
-            } else { // Escolheu um que tem leaf
-                // Nem o this e nem o leaf são o ptr
-                // Usa o leaf ao invés do this
-
-                this->hash  = leaf->hash;
-                this->hash1 = leaf->hash1;
-
-                const uint leafIndex = leaf->index;
-                const uint index = this->index;
-
-                this->index = leafIndex;
-                leaf->index = index;
-
-                ctx->indexes[index] = leaf - cache;
-                ctx->indexes[leafIndex] = this - cache;
-
-                this = leaf;
-               *this->ptr = CACHE_SIZE; // Tira ele de onde ele está
-                this->ptr = ptr; // Coloca ele seguindo o path que seguimos
                *this->ptr = this - cache;
             }
 
@@ -357,40 +337,51 @@ int main (void) {
         0xe0f40460735dedf5ULL, 0x0847f974623a4650ULL, 0x04f05d5ff4065f47ULL, 0x0054074050507007ULL, 0x445604fa403af044ULL,
         };
 
-    uintll tests[] = { 1, 50, 51, 52, 100, 500, 768, 1024, 2048, 4096, 8192,
-        CACHE_SIZE,
-        CACHE_SIZE,
-        CACHE_SIZE,
-        CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        10*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        100*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        500*CACHE_SIZE,
-        2048*CACHE_SIZE, 2048*CACHE_SIZE, 4096*CACHE_SIZE, 4096*CACHE_SIZE, 0 };
+    uintll tests[] = { 1, 50, 51, 52, 100, 500, 768,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+        1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024,
+        1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024,
+        1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024,
+        1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024,
+        1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024,
+        1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024, 1024,
+        2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
+        2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
+        2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
+        2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048,
+        4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096,
+        4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096,
+        4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096,
+        4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096,
+        4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192,
+        CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE, CACHE_SIZE,
+        10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE, 10*CACHE_SIZE,
+        100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE, 100*CACHE_SIZE,
+        500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE, 500*CACHE_SIZE,
+        2048*CACHE_SIZE, 2048*CACHE_SIZE, 4096*CACHE_SIZE, 4096*CACHE_SIZE,
+              CACHE_SIZE*CACHE_SIZE,
+        500ULL*CACHE_SIZE*CACHE_SIZE,
+        0
+        };
     uint test = 0;
     uintll count;
 
